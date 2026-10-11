@@ -50,10 +50,20 @@ class _Windows:
                               ctypes.c_int, ctypes.c_int, w.UINT], w.BOOL),
             "ShowWindow": ([w.HWND, ctypes.c_int], w.BOOL),
             "GetSystemMetrics": ([ctypes.c_int], ctypes.c_int),
+            # Cursor hit-testing for click-through: where is the pointer, and in the
+            # overlay's own client coordinates?
+            "GetCursorPos": ([ctypes.POINTER(w.POINT)], w.BOOL),
+            "ScreenToClient": ([w.HWND, ctypes.POINTER(w.POINT)], w.BOOL),
         }
         for name, (args, result) in signatures.items():
             fn = getattr(self.user32, name)
             fn.argtypes, fn.restype = args, result
+        # Extended-style get/set for the click-through (WS_EX_TRANSPARENT) toggle.
+        # Pointer-sized like the HWND calls above (64-bit safe).
+        self.user32.GetWindowLongPtrW.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        self.user32.GetWindowLongPtrW.restype = ctypes.c_ssize_t
+        self.user32.SetWindowLongPtrW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_ssize_t]
+        self.user32.SetWindowLongPtrW.restype = ctypes.c_ssize_t
         self.kernel32.OpenProcess.argtypes = [w.DWORD, w.BOOL, w.DWORD]
         self.kernel32.OpenProcess.restype = w.HANDLE
         self.kernel32.QueryFullProcessImageNameW.argtypes = [w.HANDLE, w.DWORD, w.LPWSTR, ctypes.POINTER(w.DWORD)]
@@ -113,6 +123,28 @@ class _Windows:
         g = self.user32.GetSystemMetrics
         return g(76), g(77), g(78), g(79)   # x, y, width, height
 
+    def cursor_in_client(self, hwnd) -> tuple[int, int] | None:
+        """The mouse position in the overlay's client coordinates (physical px),
+        or None if it can't be read. Used to hit-test the overlay's own controls
+        while click-through is on."""
+        point = self.w.POINT()
+        if not self.user32.GetCursorPos(ctypes.byref(point)):
+            return None
+        if not self.user32.ScreenToClient(hwnd, ctypes.byref(point)):
+            return None
+        return point.x, point.y
+
+    def set_click_through(self, hwnd, enabled: bool) -> None:
+        """Toggle WS_EX_TRANSPARENT (0x20) so mouse input falls through the overlay
+        to the game behind it (True) or is received again (False). The window is
+        already layered via its WinForms Opacity, so the transparent bit alone
+        decides hit-testing. Only call this when the state actually changes."""
+        GWL_EXSTYLE, WS_EX_TRANSPARENT = -20, 0x00000020
+        style = self.user32.GetWindowLongPtrW(hwnd, GWL_EXSTYLE)
+        new = (style | WS_EX_TRANSPARENT) if enabled else (style & ~WS_EX_TRANSPARENT)
+        if new != style:
+            self.user32.SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new)
+
 
 def _follow_position(previous, bounds, current, snap=False, expand_up=False):
     """Preserve the user's dragged offset as the game moves/resizes.
@@ -153,7 +185,7 @@ def _overlay_prefs() -> dict:
     # a game loot/reward popup never hides it. The read below uses each key's own
     # default, so an absent key keeps True here and False for the others.
     prefs = {"resizable": False, "snap_edge": False, "expand_up": False, "always_visible": True,
-             "remember_position": True}
+             "remember_position": True, "click_through": False}
     # Remembered drag positions (per overlay), restored at launch instead of
     # re-anchoring to the game window. Machine/monitor-specific, so they live only
     # in ui.json (never the shareable settings backup).
@@ -184,10 +216,38 @@ class _OverlayAPI:
         self._size = None
         self._windows_ready = False
         self._locked = False
+        # Click-through: when on, the window ignores mouse input (WS_EX_TRANSPARENT)
+        # so clicks reach the game, EXCEPT while the cursor is over one of the
+        # interactive rects (the overlay's buttons/sliders), which stay usable. The
+        # rects are pushed from the web page in device pixels relative to the client
+        # area; the hit-test loop reads them and toggles the style. Assigned as whole
+        # new objects so the loop thread never sees a half-updated value.
+        self._click_through = False
+        self._interactive = ()
 
     def set_locked(self, value):
         # Screenshot lock: keep the overlay visible and stationary while locked.
         self._locked = bool(value)
+
+    def set_click_through(self, enabled):
+        # Called from the overlay page when the setting changes. The hit-test loop
+        # (Windows) picks this up and starts/stops passing clicks through.
+        self._click_through = bool(enabled)
+
+    def set_interactive_rects(self, rects):
+        # Called from the overlay page with its controls' bounding boxes, each
+        # [left, top, right, bottom] in device px relative to the client area.
+        parsed = []
+        if isinstance(rects, (list, tuple)):
+            for r in rects:
+                if isinstance(r, (list, tuple)) and len(r) == 4:
+                    try:
+                        l, t, rt, b = (float(r[0]), float(r[1]), float(r[2]), float(r[3]))
+                    except (TypeError, ValueError):
+                        continue
+                    if rt > l and b > t:
+                        parsed.append((l, t, rt, b))
+        self._interactive = tuple(parsed)
 
     def _on_ui(self, callback):
         from System import Action
@@ -284,6 +344,42 @@ def _save_overlay_position(app_base, party, pos) -> None:
         pass
 
 
+def _click_through_loop(window, api, win32, closed: threading.Event) -> None:
+    """Pass mouse clicks through the overlay to the game while click-through is on,
+    except over the overlay's own controls so they stay usable.
+
+    WS_EX_TRANSPARENT makes the *whole* window click-through, so to keep the
+    buttons working we poll the cursor (~30 Hz) and drop the transparent bit only
+    while the pointer is over one of the interactive rects the web page reports.
+    The style is changed on the UI thread and only when the state actually flips,
+    so idle cost is a cursor read per tick and nothing else. Windows-only.
+    """
+    applied = None   # None = untouched; True = transparent (pass-through); False = opaque (interactive)
+    while not closed.wait(0.033):
+        try:
+            hwnd = window.native.Handle.ToInt64()
+            if not api._click_through:
+                if applied:                       # was passing clicks through — restore input once
+                    api._on_ui(lambda h=hwnd: win32.set_click_through(h, False))
+                    applied = False
+                continue
+            pos = win32.cursor_in_client(hwnd)
+            over_control = False
+            if pos is not None:
+                cx, cy = pos
+                for l, t, r, b in api._interactive:
+                    if l <= cx <= r and t <= cy <= b:
+                        over_control = True
+                        break
+            want_transparent = not over_control    # click through everywhere but the controls
+            if want_transparent != applied:
+                api._on_ui(lambda h=hwnd, v=want_transparent: win32.set_click_through(h, v))
+                applied = want_transparent
+        except Exception:
+            # A transient bridge/window hiccup must never kill the loop.
+            continue
+
+
 def _run_overlay(window, api, app_base: str | None = None, party: bool = False) -> None:
     closed = threading.Event()
     window.events.closed += closed.set
@@ -306,6 +402,9 @@ def _run_overlay(window, api, app_base: str | None = None, party: bool = False) 
             win32 = _Windows()
         except Exception:
             _LOG.exception("Could not initialize overlay foreground tracking")
+        if win32 is not None:
+            threading.Thread(target=_click_through_loop, args=(window, api, win32, closed),
+                             daemon=True, name="overlay-click-through").start()
     window.show()
     prefs = _overlay_prefs()
     snap, expand_up = prefs["snap_edge"], prefs["expand_up"]

@@ -121,6 +121,41 @@ def test_profile_share_code_strips_the_background_image():
     assert "return {name:String(obj.name||'').slice(0,40)" in APP_JS
 
 
+OVERLAY_PY = (pathlib.Path(__file__).resolve().parents[1] / "aion2calc" / "overlay.py").read_text(encoding="utf-8")
+
+
+def test_click_through_setting_defaults_off_and_backs_up(home):
+    # Off by default so the overlay stays interactive until the user opts in.
+    assert server.ui_settings()["overlay_click_through"] is False
+    # Rides the settings backup like the other overlay behaviour toggles.
+    assert settings_backup.import_settings({"overlay_click_through": True})["settings"]["overlay_click_through"] is True
+    assert settings_backup.import_settings({"overlay_click_through": False})["settings"]["overlay_click_through"] is False
+    with pytest.raises(ValueError):
+        settings_backup.import_settings({"overlay_click_through": "yes"})
+
+
+def test_click_through_toggle_is_wired_in_settings_and_overlay():
+    # App settings toggle.
+    assert 'id="ov-clickthrough"' in APP_JS
+    assert "overlay_click_through" in APP_JS
+    # Overlay page reports its controls and the mode across the native bridge.
+    assert "applyClickThrough" in OVERLAY_JS
+    assert "set_click_through" in OVERLAY_JS
+    assert "set_interactive_rects" in OVERLAY_JS
+    assert "reportInteractiveRects" in OVERLAY_JS
+    assert "devicePixelRatio" in OVERLAY_JS
+
+
+def test_click_through_native_hit_test_present():
+    # The native side toggles WS_EX_TRANSPARENT and hit-tests the cursor against the
+    # reported control rects so the overlay's own buttons stay clickable.
+    assert "def _click_through_loop" in OVERLAY_PY
+    assert "def set_click_through" in OVERLAY_PY
+    assert "def set_interactive_rects" in OVERLAY_PY
+    assert "cursor_in_client" in OVERLAY_PY
+    assert "0x00000020" in OVERLAY_PY   # WS_EX_TRANSPARENT
+
+
 def test_settings_has_a_square_selector_for_bundled_backgrounds():
     # A clickable square (background preview + profile name) per profile that
     # bundles a background, wired to apply that profile.
