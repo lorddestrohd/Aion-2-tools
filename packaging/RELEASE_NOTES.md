@@ -1,3 +1,8 @@
+## Long instanced runs stay rankable + automatic logs cleanup (0.2.207)
+
+- **Fixed: a long instanced fight could flip to "partial capture · unranked" partway through.** When a run is long enough to roll over into a new internal storage part, that part resets its "entry observed" flag — and the meter was treating that as "I joined mid-instance," so it marked the rest of the fight unranked (this showed up after a death in a long run, which is just a late point in the fight). The entry **was** observed at the start and is carried across parts, so a rolled-over run now stays rankable in both the live view and the saved log. (Diagnosed from a user's capture that rolled over into 270 parts.)
+- **Automatic logs-folder cleanup with a size cap.** A long session writes many rollover parts, so the `logs` folder could grow very large. The app now keeps it under a configurable cap — **default 1024 MB (1 GB)** — by deleting the oldest recordings first when it's exceeded (never the session being captured). Set it under **Settings → Combat records → "Keep the logs folder under … MB"**; `0` turns auto-delete off. Cleanup runs during capture and once at launch.
+
 ## Always-on meter, overlay Start/Stop, smoother resize, quit-upload (0.2.206)
 
 - **The meter now starts automatically when the app launches** (on by default), so the app and overlay show live data without pressing Start — Start/Stop then just pauses and resumes. It's best-effort: if packet-capture support (Npcap/libpcap) isn't installed yet it stays stopped and the first Start walks you through installing it. Toggle under **Settings → Combat records → "Start the meter automatically when the app launches"**.

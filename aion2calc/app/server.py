@@ -930,6 +930,8 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError(f"{flag} must be true or false")
             _ui_int_ranges = (("meter_reset_delay", 1, 120), ("meter_max_records", 1, 500),
                               ("meter_dummy_record_seconds", 5, 3600),
+                              ("meter_log_cache_mb", 0, 1048576),   # 0 disables pruning; up to 1 TiB
+
                               ("overlay_max_players", 1, 24), ("overlay_width", 260, 800),
                               ("overlay_height", 0, 800),
                               ("overlay_row_height", 14, 48), ("overlay_font_scale", 80, 160),
@@ -1124,7 +1126,7 @@ def ui_settings() -> dict:
                 "overlay_bg_opacity": 100, "overlay_bg_zoom": 100, "overlay_bg_darken": 20, "overlay_bg_set": False,
                 "overlay_long_names_scroll": False, "overlay_party_enabled": False,
                 "meter_save_records": True, "meter_auto_upload": True, "meter_report_boss_kills": False,
-                "meter_autostart": True,
+                "meter_autostart": True, "meter_log_cache_mb": 1024,
                 "overlay_name_mode": "name",
                 "overlay_dps_interpolate": True, "overlay_interpolate_ms": 50, "overlay_show_fps": False,
                 "overlay_presets": []}
@@ -1232,6 +1234,17 @@ def serve(port: int = 8765, open_browser: bool = True, sync: bool = True, host: 
             except Exception:
                 pass    # auto-start is best-effort; Start always remains available
         threading.Timer(1.6, _meter_on_app_start).start()
+    # Trim the logs folder to the user's cache cap once at launch too, so an
+    # already-oversized folder is cleaned even before the next capture saves.
+    def _prune_logs_on_start():
+        try:
+            cap_mb = ui_settings().get("meter_log_cache_mb", 1024)
+            if isinstance(cap_mb, int) and not isinstance(cap_mb, bool) and cap_mb > 0:
+                from ..combat.sessions import prune_logs
+                prune_logs(cap_mb * 1024 * 1024)
+        except Exception:
+            pass
+    threading.Timer(2.0, _prune_logs_on_start).start()
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

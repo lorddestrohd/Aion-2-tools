@@ -124,6 +124,30 @@ def test_open_world_combat_is_not_flagged_partial_capture():
     assert snap["partial_capture"] is False
 
 
+def test_storage_rollover_keeps_a_witnessed_run_rankable():
+    # A long instanced run that rolls over into a new storage part (continuation)
+    # must not flip to "partial capture · unranked": continuation() resets
+    # start_observed for the new part but preserves the observed entry as
+    # recorded_entry, so the run stays rankable across the rollover.
+    s = CombatSession()
+    s.pvp = False
+    engine = MeterEngine()
+    _zone(engine, local=4062, members=(4063, 4064), reset_ms=100_000, t=100_000)
+    s.observe(engine, [], timestamp_ms=101_000)
+    s.observe(engine, [_hit(4062, 9001, 105_000), _hit(4063, 9001, 106_000)], timestamp_ms=106_000)
+    assert s.snapshot(scope="auto", segment_id=None)["partial_capture"] is False
+    assert s.runs[s.run].get("start_observed") is True
+
+    part2 = s.continuation()
+    assert part2.runs[part2.run].get("start_observed") is False      # the rollover reset it
+    assert part2.runs[part2.run].get("recorded_entry") is not None   # but entry is preserved
+    # The same fight continues in the new part (no new zone load).
+    engine.last_zone_reset_ms = None
+    part2.observe(engine, [_hit(4062, 9001, 110_000), _hit(4063, 9001, 111_000)], timestamp_ms=111_000)
+    live = part2.snapshot(scope="auto", segment_id=None)
+    assert live["partial_capture"] is False                          # still rankable despite the rollover
+
+
 def test_instance_join_without_entry_is_still_partial_capture():
     # Contrast: the same mid-join inside an instance stays flagged partial.
     s = CombatSession()

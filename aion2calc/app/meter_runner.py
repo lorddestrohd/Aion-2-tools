@@ -48,6 +48,7 @@ class Runner:
         # can't exceed ~50% duty no matter how big the fight gets.
         self._snap_cache: tuple | None = None
         self._last_snap_cost = 0.0
+        self._last_prune = 0.0   # throttle the logs-folder size prune
         self.started_at: float | None = None
         self._last_packet_at: float | None = None
         self._last_combat_at: float | None = None
@@ -504,6 +505,20 @@ class Runner:
             try:
                 from ..combat import boss_report
                 boss_report.report_async(doc)
+            except Exception:
+                pass
+            # Keep the logs folder under the user's cache cap (default 1 GB). A long
+            # session writes many rollover parts, so prune the oldest here — throttled
+            # so it runs at most ~once/minute — never removing the file just written.
+            try:
+                now = time.monotonic()
+                if now - self._last_prune >= 60:
+                    self._last_prune = now
+                    from ..app import server as _srv
+                    cap_mb = _srv.ui_settings().get("meter_log_cache_mb", 1024)
+                    if isinstance(cap_mb, int) and not isinstance(cap_mb, bool) and cap_mb > 0:
+                        from ..combat.sessions import prune_logs
+                        prune_logs(cap_mb * 1024 * 1024, keep={self.session_file})
             except Exception:
                 pass
 

@@ -365,6 +365,14 @@ class CombatSession:
         return (not record.party and bool(identity.get("initial_roster"))
                 and 0 < record.sequence <= identity.get("initial_roster_sequence", 0))
 
+    @staticmethod
+    def _entry_observed(run) -> bool:
+        """Whether this run's instance entry was captured — directly in this part
+        (``start_observed``) or carried over from an earlier storage part as
+        ``recorded_entry``. A long run that rolled over into a new archive part
+        keeps its observed entry, so it must not be mis-flagged a partial capture."""
+        return bool(run.get("start_observed") or run.get("recorded_entry"))
+
     def _effective_scope(self, scope, epoch):
         if scope != "auto":
             return scope
@@ -723,7 +731,7 @@ class CombatSession:
         from .a2parser.engine import OPEN_WORLD_MAPS
         summary["partial_capture"] = any(self.runs[g["run"]].get("map_id") not in OPEN_WORLD_MAPS
                                          and (self._effective_scope(scope, g["epoch"]) == "all"
-                                              or bool(self.runs[g["run"]].get("instance_id")) and not self.runs[g["run"]].get("start_observed")) for g in chosen)
+                                              or bool(self.runs[g["run"]].get("instance_id")) and not self._entry_observed(self.runs[g["run"]])) for g in chosen)
         if summary["partial_capture"]:
             observed = any(self._effective_scope(scope, g["epoch"]) == "all" for g in chosen)
             summary["warning"] = ("Partial capture · unranked; excluded from community learning. "
@@ -1011,7 +1019,7 @@ class CombatSession:
                     "run_start_observed":run.get("start_observed",False),
                     "run_started_at":datetime.fromtimestamp(run["started_at"]/1000,timezone.utc).isoformat() if run.get("started_at") is not None else None,
                     "run_ended_at":datetime.fromtimestamp(run["ended_at"]/1000,timezone.utc).isoformat() if run.get("ended_at") is not None else None,
-                    "partial_capture":run.get("map_id") not in OPEN_WORLD_MAPS and (group_scope == "all" or bool(run.get("instance_id")) and not run.get("start_observed")),
+                    "partial_capture":run.get("map_id") not in OPEN_WORLD_MAPS and (group_scope == "all" or bool(run.get("instance_id")) and not self._entry_observed(run)),
                     "party_members":party_members, "party_roster_complete":roster_complete, "party_roster_late":roster_late,
                     "run_end_reason":run.get("end_reason", ""), "map_id":run.get("map_id",0),
                     "instance_id":run.get("instance_id",0), "encounter_type":category,
