@@ -451,6 +451,8 @@ The bundled schedule is a dated community snapshot from [Shugo.GG](https://shugo
 
 **Load / refresh observations** retrieves public recorded boss defeats separately. Filter by recorded log region and search the returned bosses. Up to 25 context groups are displayed; updated servers include the latest 20 retained observations per group with source-log links and omitted-history counts. Source links open the recorded encounter. Exact indexed duplicates count once; different perspectives can repeat a defeat. Physical server/channel, reliable respawn rules and current availability remain unknown. Schedules work without the community server; observations require it.
 
+**Field boss kills by server** lists open-world boss kills found in public combat logs. Press **Load / refresh kills**, then choose your game server; the choice is saved in this browser. Each row shows when the boss was killed and how many different uploaders recorded it. Once repeated kills have measured that boss's respawn length, the row also counts down to the latest time it should be back. A kill is placed on the home server of the recorded characters who fought the boss, so a visitor from another server reports its own server: trust a kill more when several uploaders recorded it. Kills appear when a Live Meter log is uploaded as Public, not at the moment the boss dies.
+
 ## Settings
 
 | Setting | What it does |
