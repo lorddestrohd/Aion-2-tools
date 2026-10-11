@@ -1,3 +1,8 @@
+## Customization profiles now carry their overlay background (0.2.210)
+
+- **A saved customization profile now bundles your overlay background image**, so switching to a profile also restores the background it was saved with — not just the colours, fonts and sliders. The image is stored **locally, in this browser on your own machine** (kept at a reduced size so it fits): it is **never uploaded** and is **left out of the "Copy share code"**, which still carries only your colours and settings. Applying a profile that was saved with no background clears the current one; older profiles saved before this change leave the background untouched.
+- **New square selector under Settings → Profiles & backup → Customization profiles.** Every profile that carries a background now shows as a square tile with a preview of that background and the profile's name — click a tile to apply that whole profile in one step.
+
 ## Overlay no longer flickers a black edge over the game (0.2.209)
 
 - **Fixed: a black band could flash at the top of the screen whenever the overlay was open** (reported on Windows 10, borderless-windowed, regardless of where the overlay sat). The overlay was running a continuous per-frame loop just to measure its own render FPS — even though the FPS readout is off by default — which kept the always-on-top, semi-transparent window compositing every frame and made the desktop compositor flicker over a borderless game. The frame loop now runs **only while the FPS readout is enabled**, so a normal overlay sits idle between its twice-a-second updates and no longer drives constant repaints.

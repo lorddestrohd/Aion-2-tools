@@ -100,3 +100,32 @@ def test_fps_frame_loop_runs_only_when_the_readout_is_enabled():
 def test_meters_today_sits_left_of_the_colour_switcher():
     # dau is inserted before the accent (colour) button, not just before the theme toggle.
     assert 'document.getElementById("accent") || theme' in NAV_JS
+
+
+def test_profile_bundles_the_overlay_background_locally():
+    # Saving a customization profile snapshots the overlay background into the
+    # profile (stored in this browser, on the user's machine), and applying a
+    # profile restores (or clears) that bundled image.
+    assert "captureOverlayBackground" in APP_JS
+    assert "fetch('/overlay-background?'" in APP_JS
+    assert "fresh.overlay_bg_set?await captureOverlayBackground()" in APP_JS
+    # Apply pushes the bundled image back (or clears it) via the local background API.
+    assert "await api('/api/overlay/background',prof.bg?{data:prof.bg}:{clear:true})" in APP_JS
+
+
+def test_profile_share_code_strips_the_background_image():
+    # The portable share code (and therefore any export to a server) must not carry
+    # the bundled background — only colours and settings.
+    assert "const encodeProfile=prof=>{const {bg,...rest}=prof;" in APP_JS
+    # The decoder rebuilds a clean object with no bg field, so imports never bring one in.
+    assert "return {name:String(obj.name||'').slice(0,40)" in APP_JS
+
+
+def test_settings_has_a_square_selector_for_bundled_backgrounds():
+    # A clickable square (background preview + profile name) per profile that
+    # bundles a background, wired to apply that profile.
+    assert "function customProfileGallery()" in APP_JS
+    assert "custgallery" in APP_JS
+    assert "data-cust-tile" in APP_JS
+    assert '$$("[data-cust-tile]")' in APP_JS
+    assert ".custtile" in (STATIC / "app.css").read_text(encoding="utf-8")
