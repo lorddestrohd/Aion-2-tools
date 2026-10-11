@@ -1,3 +1,11 @@
+## Always-on meter, overlay Start/Stop, smoother resize, quit-upload (0.2.206)
+
+- **The meter now starts automatically when the app launches** (on by default), so the app and overlay show live data without pressing Start — Start/Stop then just pauses and resumes. It's best-effort: if packet-capture support (Npcap/libpcap) isn't installed yet it stays stopped and the first Start walks you through installing it. Toggle under **Settings → Combat records → "Start the meter automatically when the app launches"**.
+- **The transparent overlay has its own Start/Stop button** at the right of its header (under the "Latest combat" line). It mirrors the app's button — green **Start** when stopped, red **Stop** while running — so you can start or stop capture without alt-tabbing to the app. It uses your remembered Players scope.
+- **Smoother overlay resize.** Dragging the resize grips was glitchy because each drag step both resized the native window and re-triggered a layout observer that resized it again — a feedback loop. Resizing now drives the window directly and coalesces to one native resize per frame, so the grips track the pointer cleanly.
+- **Auto-upload on quit.** If you close or quit the app while the meter is still running, the session is now auto-uploaded on the way out (same **Upload on stop** setting, bounded so it never hangs shutdown). If you'd already pressed Stop, it was already uploaded, so quitting won't upload a duplicate.
+- **Website:** the "● N meters today" count now sits just left of the colour switcher in the header.
+
 ## Meter stability in big fights + overlay/filter persistence (0.2.205)
 
 Three fixes from field reports:

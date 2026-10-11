@@ -45,7 +45,10 @@
   const el = document.createElement("span");
   el.id = "dau"; el.className = "dau"; el.hidden = true;
   el.title = "Unique live meters active today — an anonymous daily count (one per install).";
-  if (theme) bar.insertBefore(el, theme); else bar.appendChild(el);
+  // Sit to the left of the colour switcher (the accent button, added earlier in
+  // this script), falling back to before the theme toggle, then the bar's end.
+  const anchor = document.getElementById("accent") || theme;
+  if (anchor) bar.insertBefore(el, anchor); else bar.appendChild(el);
 
   function pickCount(data) {
     if (!data || typeof data !== "object") return null;
