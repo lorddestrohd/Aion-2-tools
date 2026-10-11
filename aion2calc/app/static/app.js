@@ -1736,6 +1736,48 @@ function customProfileOptions(){
   const list=getCustomProfiles();
   return `<option value="">${list.length?'Choose a profile…':'No saved profiles yet'}</option>`+list.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join("");
 }
+// Downscale an image blob to a JPEG data URL small enough to live beside the
+// profile in this browser's localStorage (overlay backgrounds can be up to 8 MB,
+// but localStorage is ~5 MB total, so bundled copies are capped in size).
+function downscaleImageToDataUrl(blob,maxDim,quality){
+  return new Promise(res=>{
+    const url=URL.createObjectURL(blob),img=new Image();
+    img.onload=()=>{
+      URL.revokeObjectURL(url);
+      try{
+        let w=img.naturalWidth||img.width,h=img.naturalHeight||img.height;
+        const s=Math.min(1,maxDim/Math.max(w,h||1));
+        w=Math.max(1,Math.round(w*s));h=Math.max(1,Math.round(h*s));
+        const c=document.createElement('canvas');c.width=w;c.height=h;
+        c.getContext('2d').drawImage(img,0,0,w,h);
+        res(c.toDataURL('image/jpeg',quality));
+      }catch(_){res('');}
+    };
+    img.onerror=()=>{URL.revokeObjectURL(url);res('');};
+    img.src=url;
+  });
+}
+// Snapshot the overlay's current background (served from the local app) as a
+// downscaled data URL to bundle into a profile. Stays on this machine; never
+// uploaded and never put in a share code. Returns '' when none is set.
+async function captureOverlayBackground(){
+  try{
+    const resp=await fetch('/overlay-background?'+Date.now());
+    if(!resp.ok)return '';
+    const blob=await resp.blob();
+    if(!blob||!blob.size)return '';
+    return await downscaleImageToDataUrl(blob,1400,0.82);
+  }catch(_){return '';}
+}
+// A grid of square tiles — one per profile that bundles a background — showing
+// the background preview and the profile name; clicking a tile applies it.
+function customProfileGallery(){
+  const list=getCustomProfiles().filter(p=>typeof p.bg==='string'&&p.bg);
+  if(!list.length)return '';
+  return `<div class="custgallery" role="group" aria-label="Profiles with a bundled background">`+list.map(p=>
+    `<button type="button" class="custtile" data-cust-tile="${esc(p.name)}" title="Apply ${esc(p.name)}"><span class="custtile-img" style="background-image:url('${esc(p.bg)}')"></span><span class="custtile-name">${esc(p.name)}</span></button>`
+  ).join('')+`</div>`;
+}
 async function pageSettings() {
   const [s, srv, ui] = await Promise.all([api("/api/status"), api("/api/logserver").catch(() => ({})), api("/api/ui").catch(() => ({}))]);
   const t = getTheme();
@@ -1802,7 +1844,8 @@ async function pageSettings() {
       <div class="row"><label>Training-dummy parse window <input type="number" id="rec-dummy-secs" min="5" max="3600" value="${Number(ui.meter_dummy_record_seconds)||60}" style="width:70px"> s</label></div>
       <p class="small muted">Applies to the live meter and overlay. A cleared battle's details stay available in the segment list until replaced.</p></div></div>
     <div class="setrow" data-g="backup"><div class="lbl">Customization profiles</div><div><div class="row"><select id="cust-profile" style="min-width:200px">${customProfileOptions()}</select><button class="btn small" id="cust-apply">Apply</button><button class="btn small" id="cust-save">Save current as…</button><button class="btn small" id="cust-delete">Delete</button><button class="btn small" id="cust-copy">Copy share code</button><button class="btn small" id="cust-import">Paste a shared code…</button><span id="cust-msg" class="small muted" role="status"></span></div>
-      <p class="small muted">A profile bundles your whole look — <strong>theme</strong>, <strong>accent colour</strong>, <strong>class colours</strong> and the <strong>overlay look</strong> — into one named set you can switch between in a click. Stored in this browser.</p></div></div>
+      ${customProfileGallery()}
+      <p class="small muted">A profile bundles your whole look — <strong>theme</strong>, <strong>accent colour</strong>, <strong>class colours</strong>, the <strong>overlay look</strong> and your <strong>overlay background image</strong> — into one named set you can switch between in a click. Stored in this browser, on your machine. Any profile that carries a background shows as a square above; click it to apply. The bundled image stays on your machine — it is never uploaded and is left out of the <strong>Copy share code</strong> (which carries only your colours and settings), and it is kept at a reduced size so it fits.</p></div></div>
     <div class="setrow" data-g="backup"><div class="lbl">Settings backup</div><div><div class="row"><button class="btn small" id="settings-export">Export settings</button><label class="btn small" for="settings-import-file">Import settings</label><input type="file" id="settings-import-file" accept="application/json,.json" style="display:none"><span id="settings-backup-msg" class="small muted" role="status"></span></div><p class="small muted">Save all overlay and app settings to a file you can restore or share, then import it back.</p></div></div>
     <div class="setrow" data-g="overlay"><div class="lbl">Overlay colors &amp; fonts</div><div><div class="row"><label>Rate text <input type="color" id="ov-rate-color" value="${esc(overlayText('rate'))}"></label><label>Total / share text <input type="color" id="ov-total-color" value="${esc(overlayText('total'))}"></label><label>Player name <input type="color" id="ov-name-color" value="${esc(/^#[0-9a-f]{6}$/i.test(overlayColors.name||'')?overlayColors.name:'#eceae3')}"></label><label>Header <input type="color" id="ov-header-color" value="${esc(/^#[0-9a-f]{6}$/i.test(overlayColors.header||'')?overlayColors.header:'#e8cf8e')}"></label><label>Target text <input type="color" id="ov-target-color" value="${esc(/^#[0-9a-f]{6}$/i.test(overlayColors.target||'')?overlayColors.target:'#cdd6e6')}"></label><label>Enemy-HP text <input type="color" id="ov-hptext-color" value="${esc(/^#[0-9a-f]{6}$/i.test(overlayColors.hp||'')?overlayColors.hp:'#e58f8f')}"></label><label>TTK text <input type="color" id="ov-ttktext-color" value="${esc(/^#[0-9a-f]{6}$/i.test(overlayColors.ttk||'')?overlayColors.ttk:'#8fb3d0')}"></label><button class="btn small" id="ov-color-reset">Reset numbers to black</button><span class="small muted" id="ov-color-msg" role="status"></span></div>
       <div class="row"><label>Font <select id="ov-font-fam">${["","Segoe UI","Arial","Verdana","Georgia","Trebuchet MS","Consolas","Tahoma"].map(f=>`<option value="${esc(f)}" ${f===(ui.overlay_font_family||'')?'selected':''}>${f||'Default'}</option>`).join('')}</select></label><label>Size <input type="number" id="ov-font-scale" min="80" max="160" value="${Number(ui.overlay_font_scale)||100}" style="width:64px"> %</label><label>Weight <select id="ov-font-weight">${[400,500,600,700,800].map(w=>`<option value="${w}" ${w===(Number(ui.overlay_font_weight)||600)?'selected':''}>${w}</option>`).join('')}</select></label><label><input type="checkbox" id="ov-glow" ${ui.overlay_glow===true?'checked':''}> Text glow</label><label>Glow color <input type="color" id="ov-glow-color" value="${esc(/^#[0-9a-f]{6}$/i.test(ui.overlay_glow_color||'')?ui.overlay_glow_color:'#e8cf8e')}"></label><label>Enemy HP bar color <input type="color" id="ov-hp-color" value="${esc(/^#[0-9a-f]{6}$/i.test(ui.overlay_hp_color||'')?ui.overlay_hp_color:'#e05a5a')}"></label><label>TTK bar color <input type="color" id="ov-ttk-color" value="${esc(/^#[0-9a-f]{6}$/i.test(ui.overlay_ttk_color||'')?ui.overlay_ttk_color:'#8fb3d0')}"></label><label title="A crisp outline around the text for legibility over busy backgrounds (separate from the soft glow)"><input type="checkbox" id="ov-outline" ${ui.overlay_text_outline===true?'checked':''}> Text outline</label><label>Outline color <input type="color" id="ov-outline-color" value="${esc(/^#[0-9a-f]{6}$/i.test(ui.overlay_outline_color||'')?ui.overlay_outline_color:'#000000')}"></label><label title="Slowly cycle the header and player names through the colour spectrum (respects your reduced-motion setting)"><input type="checkbox" id="ov-cycle" ${ui.overlay_color_cycle===true?'checked':''}> Colour-cycle</label><span class="small muted" id="ov-font-msg" role="status"></span></div>
@@ -1916,31 +1959,51 @@ async function pageSettings() {
       const fresh=await api('/api/ui');
       const look={};for(const k of OVERLAY_VISUAL_KEYS)if(fresh[k]!==undefined)look[k]=fresh[k];
       if(fresh.combat_colors!==undefined)look.combat_colors=fresh.combat_colors;
+      // Bundle the overlay background with the profile (local only — see help text).
+      // A string (possibly empty) marks a new-format profile: '' means "no background".
+      const bg=fresh.overlay_bg_set?await captureOverlayBackground():'';
       const list=getCustomProfiles().filter(p=>p.name.toLowerCase()!==name.toLowerCase());
-      list.push({name,theme:getTheme(),accent:getAccent(),ui:look});
-      saveCustomProfiles(list);toast('Profile saved');pageSettings();
+      let entry;try{entry={name,theme:getTheme(),accent:getAccent(),ui:look,bg};list.push(entry);saveCustomProfiles(list);}
+      catch(_){/* localStorage full: keep the profile but drop the heavy image */entry.bg='';saveCustomProfiles(list);}
+      // If the image didn't survive the save (quota), say so rather than imply it did.
+      const kept=getCustomProfiles().find(p=>p.name.toLowerCase()===name.toLowerCase());
+      toast(bg&&kept&&kept.bg?'Profile saved with its background':'Profile saved');
+      if(bg&&(!kept||!kept.bg))msg.textContent='Saved, but the background was too large to bundle in this browser.';
+      pageSettings();
     }catch(e){msg.textContent=e.message;}
+  };
+  // Apply a whole profile: theme, accent, class colours, overlay look, and the
+  // bundled background when the profile carries one (new-format profiles store a
+  // bg string — '' clears the current image; an absent bg leaves it untouched).
+  const applyCustomProfile=async prof=>{
+    setTheme(prof.theme||'system');setAccent(prof.accent||'gold');
+    const look=prof.ui||{};
+    if(look.combat_colors!==undefined){try{localStorage.setItem('a2-combat-colors',JSON.stringify(look.combat_colors));}catch(_){}}
+    if(Object.keys(look).length)await api('/api/ui',look);
+    if(typeof prof.bg==='string')await api('/api/overlay/background',prof.bg?{data:prof.bg}:{clear:true});
   };
   $('#cust-apply').onclick=async()=>{
     const sel=$('#cust-profile').value,msg=$('#cust-msg');if(!sel){msg.textContent='Pick a profile to apply.';return;}
     const prof=getCustomProfiles().find(p=>p.name===sel);
     if(!prof){msg.textContent='Profile not found.';return;}
     msg.textContent='Applying…';
-    try{
-      setTheme(prof.theme||'system');setAccent(prof.accent||'gold');
-      const look=prof.ui||{};
-      if(look.combat_colors!==undefined){try{localStorage.setItem('a2-combat-colors',JSON.stringify(look.combat_colors));}catch(_){}}
-      if(Object.keys(look).length)await api('/api/ui',look);
-      toast('Profile applied');pageSettings();
-    }catch(e){msg.textContent=e.message;}
+    try{await applyCustomProfile(prof);toast('Profile applied');pageSettings();}catch(e){msg.textContent=e.message;}
   };
+  $$("[data-cust-tile]").forEach(btn=>btn.onclick=async()=>{
+    const prof=getCustomProfiles().find(p=>p.name===btn.dataset.custTile);
+    if(!prof)return;
+    const msg=$('#cust-msg');msg.textContent='Applying…';
+    try{await applyCustomProfile(prof);toast('Profile applied');pageSettings();}catch(e){msg.textContent=e.message;}
+  });
   $('#cust-delete').onclick=()=>{
     const sel=$('#cust-profile').value,msg=$('#cust-msg');if(!sel){msg.textContent='Pick a profile to delete.';return;}
     saveCustomProfiles(getCustomProfiles().filter(p=>p.name!==sel));toast('Profile deleted');pageSettings();
   };
   // Share a whole customization profile as a portable code (theme + accent + look).
   const PROFILE_CODE_PREFIX='A2PROF1:';
-  const encodeProfile=prof=>PROFILE_CODE_PREFIX+btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(prof))));
+  // Share codes carry colours and settings only — the bundled background image is
+  // stripped so it stays on this machine (avoids the bloat/privacy of embedding it).
+  const encodeProfile=prof=>{const {bg,...rest}=prof;return PROFILE_CODE_PREFIX+btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(rest))));};
   const decodeProfile=code=>{
     const raw=String(code||'').trim(),b64=raw.startsWith(PROFILE_CODE_PREFIX)?raw.slice(PROFILE_CODE_PREFIX.length):raw;
     const obj=JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(b64),c=>c.charCodeAt(0))));
