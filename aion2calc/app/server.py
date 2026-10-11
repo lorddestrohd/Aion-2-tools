@@ -823,10 +823,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(r.clear_session())
             if action == "stop":
                 r.stop()
-                # Stopping capture tears down the live view, so the transparent
-                # overlay has nothing left to show: close it with the meter.
-                from .overlay_launch import close as close_overlay
-                close_overlay()
+                # Keep the overlay up when the meter stops (it still shows the last
+                # fight's numbers and its own Start button). Only close it with the
+                # meter when the user opted into that (overlay_close_on_stop), and
+                # never when Stop was pressed on the overlay itself — clicking Stop
+                # there must not make the overlay vanish under the cursor.
+                if ui_settings().get("overlay_close_on_stop") and not body.get("from_overlay"):
+                    from .overlay_launch import close as close_overlay
+                    close_overlay()
                 return self._json(r.status())
             if action == "diagnostics-folder":
                 if self.client_address[0] not in ("127.0.0.1", "::1"):
@@ -923,6 +927,7 @@ class Handler(BaseHTTPRequestHandler):
                               "overlay_glow", "overlay_long_names_scroll", "overlay_party_enabled",
                               "meter_save_records", "overlay_dps_interpolate", "overlay_show_fps",
                               "overlay_always_visible", "overlay_remember_position", "overlay_click_through",
+                              "overlay_close_on_stop",
                               "overlay_text_outline", "overlay_bar_rounded", "overlay_class_color_names",
                               "overlay_color_cycle", "community_heartbeat", "overlay_row_stripes", "overlay_class_swatch", "overlay_compact_rows", "overlay_rank_numbers", "overlay_highlight_me", "overlay_dps_graph", "overlay_open_on_app_start", "meter_auto_upload", "meter_report_boss_kills", "meter_autostart")
             for flag in _ui_bool_flags:
@@ -1132,7 +1137,7 @@ def ui_settings() -> dict:
                 # Visual group (all inert by default so the overlay looks unchanged until enabled).
                 "overlay_resizable": False, "overlay_snap_edge": False, "overlay_expand_up": False,
                 "overlay_always_visible": True, "overlay_remember_position": True,
-                "overlay_click_through": False,
+                "overlay_click_through": False, "overlay_close_on_stop": False,
                 "overlay_font_scale": 100, "overlay_font_weight": 600, "overlay_font_family": "",
                 "overlay_glow": False, "overlay_glow_color": "#e8cf8e", "overlay_hp_color": "#e05a5a",
                 "overlay_ttk_color": "#8fb3d0",
