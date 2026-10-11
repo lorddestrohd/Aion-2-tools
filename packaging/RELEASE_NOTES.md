@@ -1,3 +1,13 @@
+## Overlay no longer flickers a black edge over the game (0.2.209)
+
+- **Fixed: a black band could flash at the top of the screen whenever the overlay was open** (reported on Windows 10, borderless-windowed, regardless of where the overlay sat). The overlay was running a continuous per-frame loop just to measure its own render FPS — even though the FPS readout is off by default — which kept the always-on-top, semi-transparent window compositing every frame and made the desktop compositor flicker over a borderless game. The frame loop now runs **only while the FPS readout is enabled**, so a normal overlay sits idle between its twice-a-second updates and no longer drives constant repaints.
+
+## Update-on-close no longer hangs; accurate Start/Stop; overlay tidy-ups (0.2.208)
+
+- **Fixed: applying an update could hang on close until you quit from the tray icon.** With "keep running in the system tray" enabled, closing the window only *collapses to the tray* — the process stays alive — so the updater (which waits for the app to exit before swapping files) never proceeded. A programmatic Quit or update now also stops the tray icon so the process actually exits, and the update path no longer waits on the on-quit upload. (The tray setting is **off by default**, so most installs were never affected — this fixes it for anyone who turned it on.)
+- **The app's Start/Stop button now reflects the auto-started meter promptly.** With auto-start on, the meter is already running at launch; the app button could lag behind the overlay's (which showed "Stop") for a couple of seconds. The app now refreshes its meter status briskly while idle, so the button matches the real capture state right away.
+- **Overlay: the "Latest combat" status line moved to the right of the D.Taken button** (into the metric row), and the Start/Stop button stays pinned to the right of the header.
+
 ## Long instanced runs stay rankable + automatic logs cleanup (0.2.207)
 
 - **Fixed: a long instanced fight could flip to "partial capture · unranked" partway through.** When a run is long enough to roll over into a new internal storage part, that part resets its "entry observed" flag — and the meter was treating that as "I joined mid-instance," so it marked the rest of the fight unranked (this showed up after a death in a long run, which is just a late point in the fight). The entry **was** observed at the start and is carried across parts, so a rolled-over run now stays rankable in both the live view and the saved log. (Diagnosed from a user's capture that rolled over into 270 parts.)
