@@ -40,6 +40,14 @@ class Runner:
         # thread during a heavy-combat burst, so the overlay/meter keeps showing the
         # most recent reading instead of a "capture busy" error that freezes it.
         self._status_cache: dict = {}
+        # Short-TTL live-snapshot cache. The app page and the transparent overlay
+        # both poll ~twice a second, offset, so without this a large fight gets the
+        # full session recompute 2-4x/second while holding the capture lock, which
+        # starves the capture thread and freezes the meter. The TTL is adaptive —
+        # never recompute more often than the last recompute took — so snapshot work
+        # can't exceed ~50% duty no matter how big the fight gets.
+        self._snap_cache: tuple | None = None
+        self._last_snap_cost = 0.0
         self.started_at: float | None = None
         self._last_packet_at: float | None = None
         self._last_combat_at: float | None = None
@@ -80,6 +88,7 @@ class Runner:
         with self.lock:
             self.meter = Meter()
             self.packet_engine = None
+            self._snap_cache = None          # never show the previous session's snapshot
         self.error = None
         self._last_display_diagnostics = {}
         self.diagnostics = {}
@@ -453,6 +462,7 @@ class Runner:
             saved = str(save(doc, self.session_file))
             with self.lock:
                 self.session = self.session.continuation()
+                self._snap_cache = None      # the continuation is a fresh session object
                 self.session.capture_evidence["storage_boundary"] = True
                 self.archive_part += 1
                 self.archive_previous = doc["meta"]["archive"].get("continuity")
@@ -481,8 +491,12 @@ class Runner:
                                    checkpoint_at=time.time(), capture_scope=self.scope)
                 self.saved_log = str(save(doc, self.session_file))
                 self.diagnostics.pop("log_save_error", None)
-            except (ValueError, OSError) as exc:
-                self.diagnostics["log_save_error"] = str(exc)
+            except Exception as exc:   # noqa: BLE001 - a save must never abort Stop or the
+                # diagnostics archive that follows it. Any failure (including an unexpected
+                # one on a very large session) is recorded and swallowed so Stop still
+                # closes out, writes the diagnostics ZIP, and the last good checkpoint log
+                # (saved every 15s) remains available to upload.
+                self.diagnostics["log_save_error"] = f"{type(exc).__name__}: {exc}"
                 return
             # Opt-in, anonymous world-boss-kill community report (off by default).
             # Best-effort and deduped per kill, so repeated checkpoint saves of the
@@ -572,6 +586,28 @@ class Runner:
                 diagnostic["metadata_error"] = f"{type(exc).__name__}: {exc}"[:512]
         return result
 
+    def _live_snapshot(self, follow_latest: bool) -> dict:
+        """The live session snapshot, memoized for a short, self-tuning interval so
+        the app and overlay polling together never drive the costly full-session
+        recompute more than once per the time that recompute itself takes. Must be
+        called with ``self.lock`` held (the caller holds it). The cache only serves
+        the live display; save/export/upload call the session directly."""
+        key = (self.scope, "__latest__" if follow_latest else self.segment_id,
+               None if follow_latest else self.enemy_id, self.combine_pets)
+        now = time.monotonic()
+        cached = self._snap_cache
+        if cached is not None and cached[0] == key:
+            # Never recompute more often than the last recompute cost (floor 250ms),
+            # so snapshot work stays at most ~50% duty and the capture thread keeps up.
+            if now - cached[1] <= max(0.25, self._last_snap_cost):
+                return cached[2]
+        started = time.monotonic()
+        snap = self.session.snapshot(self.scope, None if follow_latest else self.segment_id,
+                                     None if follow_latest else self.enemy_id, self.combine_pets)
+        self._last_snap_cost = time.monotonic() - started
+        self._snap_cache = (key, time.monotonic(), snap)
+        return snap
+
     def status(self, *, follow_latest: bool = False, compact: bool = False) -> dict:
         if not self.lock.acquire(timeout=0.5):
             # The capture thread is mid-burst. Rather than failing (which freezes the
@@ -583,8 +619,7 @@ class Runner:
             raise TimeoutError("Capture data is busy; refresh will retry. Capture diagnostics can still be exported.")
         try:
             finalizing = bool(not self.running and self.thread and self.thread.is_alive())
-            snap = (self.session.snapshot(self.scope, None if follow_latest else self.segment_id,
-                                          None if follow_latest else self.enemy_id, self.combine_pets)
+            snap = (self._live_snapshot(follow_latest)
                     if self.packet_engine is not None else self.meter.snapshot())
             if self.packet_engine is not None:
                 snap["ping"] = self.meter.ping_summary()   # the session snapshot carries no latency
@@ -730,6 +765,7 @@ class Runner:
         with self.lock:
             self.session = CombatSession()
             self.meter = Meter()
+            self._snap_cache = None
             self.capture_metadata = None
             self.archive_id = uuid.uuid4().hex
             self.archive_part = 1

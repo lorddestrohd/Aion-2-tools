@@ -1,3 +1,11 @@
+## Meter stability in big fights + overlay/filter persistence (0.2.205)
+
+Three fixes from field reports:
+
+- **The meter no longer freezes in very large fights (e.g. Abyss world bosses).** The app page and the transparent overlay both poll the live meter about twice a second; in a huge fight the full-session recompute behind each poll is expensive, and running it several times a second while holding the capture lock could starve the capture thread — the meter would freeze mid-fight and names could degrade to placeholders like "Player M". The live snapshot is now memoized for a short, **self-tuning** interval (it never recomputes more often than the last recompute actually took), so snapshot work stays at roughly half the time budget no matter how big the fight gets and capture keeps up. Because a frozen app can't finish **Stop**, this also indirectly protects the auto-saved log, the diagnostics ZIP and the auto-upload that run when you stop.
+- **The overlay now remembers where you put it by default.** Previously the overlay re-anchored to the game window every time it reopened (after Stop, or on launch), so a position you'd dragged it to was lost. "Remember overlay position" is now **on by default**: the overlay reopens exactly where you last left it (each overlay — meter and party — remembers its own spot). On a first run with nothing saved yet it still places itself sensibly next to the game once, then stays put. You can switch back to follow-the-game under **Settings → Overlay**.
+- **The "Players" filter on the live meter now persists** across closing and reopening the app (like the character-name field already did), and its default is now **Self + Party** instead of Automatic — lighter by default and the common choice, while All observed players stays one click away.
+
 ## Dream Guardian Eonos no longer counts as a boss (0.2.204)
 
 - **"Dream Guardian Eonos"** (the solo story/leveling encounter) was flagged as a boss in the upstream NPC catalog, so it showed up in the community **boss lists** (boss progression, recorded defeats and boss kills). It's now corrected to **not a boss** via the verified local NPC-role override, so it no longer headlines an encounter or appears in any boss list. The correction lives outside the generated catalog, so a catalog refresh won't re-introduce it.
