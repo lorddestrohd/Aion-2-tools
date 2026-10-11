@@ -23,7 +23,7 @@ _BOOL_KEYS = ("app_window", "auto_update", "overlay_on_start", "tray_on_close", 
               "overlay_resizable", "overlay_snap_edge", "overlay_expand_up",
               "overlay_glow", "overlay_long_names_scroll", "overlay_party_enabled",
               "meter_save_records", "overlay_dps_interpolate", "overlay_show_fps",
-              "overlay_always_visible", "overlay_remember_position", "overlay_text_outline",
+              "overlay_always_visible", "overlay_remember_position", "overlay_click_through", "overlay_text_outline",
               "overlay_bar_rounded", "overlay_class_color_names", "overlay_color_cycle",
               "overlay_row_stripes", "overlay_class_swatch", "overlay_compact_rows", "overlay_rank_numbers",
               "overlay_highlight_me", "overlay_dps_graph", "overlay_open_on_app_start", "meter_auto_upload", "meter_report_boss_kills", "meter_autostart")

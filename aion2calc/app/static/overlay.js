@@ -5,6 +5,7 @@
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const kfmt = (x) => { if (x == null || isNaN(x)) return "—"; const a = Math.abs(x); return a >= 1e6 ? (x / 1e6).toFixed(2) + "M" : a >= 1e3 ? (x / 1e3).toFixed(2) + "K" : Math.round(x).toString(); };
   let tab = "meter", metric = "dps", t = 0, op = 0.72, lastSnap = null, polling = false, nativeReady = false, meterUnavailable = false, refreshError = "", lastSuccess = null;
+  let clickThrough = false, rectTimer = 0;
   const partyMode = new URLSearchParams(location.search).get("view") === "party";
   if (partyMode) document.getElementById("ov").classList.add("ov-party");
   try { const saved=localStorage.getItem("ovmetric"); if(["dps","hps","taken"].includes(saved))metric=saved; } catch(e) { /* optional storage */ }
@@ -107,6 +108,7 @@
     showFps=ui.overlay_show_fps===true;
     $("#ovfps").hidden=!showFps||partyMode;
     setFpsLoop(showFps&&!partyMode);   // only drive a per-frame loop while the FPS readout is shown
+    applyClickThrough(ui.overlay_click_through===true);   // pass clicks to the game, keeping the overlay's buttons live
     // Layout
     maxPlayers=clampInt(ui.overlay_max_players,1,24,8);
     onlyInCombat=ui.overlay_only_in_combat===true;
@@ -183,6 +185,32 @@
     const api = nativeReady && window.pywebview?.api;
     if (api && typeof api[name] === "function") api[name](...args).catch(() => {});
   }
+  // Click-through: when on, the native window ignores the mouse so clicks reach the
+  // game, except over the overlay's own controls. The native side needs to know
+  // where those controls are (it can't use the web page's hover while input is
+  // passing through), so we report their bounding boxes in device px — getBoundingClientRect
+  // is CSS px, multiplied by devicePixelRatio to match the native client coordinates.
+  function reportInteractiveRects() {
+    if (!clickThrough) return;
+    const dpr = window.devicePixelRatio || 1;
+    const rects = [];
+    document.querySelectorAll("#ov button, #ov input, #ov select, #ov a").forEach((el) => {
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0)
+        rects.push([r.left * dpr, r.top * dpr, r.right * dpr, r.bottom * dpr]);
+    });
+    nativeCall("set_interactive_rects", rects);
+  }
+  function applyClickThrough(on) {
+    clickThrough = !!on;
+    nativeCall("set_click_through", clickThrough);
+    clearInterval(rectTimer); rectTimer = 0;
+    if (clickThrough) {
+      reportInteractiveRects();
+      // Controls move as rows/targets appear; refresh the reported rects while on.
+      rectTimer = setInterval(reportInteractiveRects, 400);
+    }
+  }
   // Coalesce native window-resize calls to one per animation frame. Both the
   // ResizeObserver and a drag-resize can ask to fit many times a frame; without
   // this, each call hops the pywebview bridge to resize the native window, and the
@@ -209,6 +237,10 @@
     nativeReady = true;
     document.documentElement.classList.toggle("native-windows", window.pywebview?.platform === "edgechromium");
     applyOpacity(); fit();
+    // The first settings sync may have run before the bridge was ready, so re-push
+    // the click-through state (and the control rects) now that native calls land.
+    nativeCall("set_click_through", clickThrough);
+    if (clickThrough) reportInteractiveRects();
   }
   window.addEventListener("pywebviewready", nativeInit);
   if (window.pywebview?.api?.fit) nativeInit();

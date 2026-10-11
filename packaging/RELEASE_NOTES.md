@@ -1,3 +1,9 @@
+## Click through the overlay (0.2.211)
+
+- **New "Click through the overlay" toggle** (Settings → Overlay layout, **off by default**, Windows). When on, the mouse **passes through the overlay to the game** so the always-on-top meter never intercepts a click — handy for streamers and in raids. It applies to an open overlay within ~10 seconds and rides the settings backup.
+- **Your overlay buttons still work.** Rather than making the whole window click-through (which would lock you out of Start/Stop and the sliders), the overlay reports where its controls are and a fast cursor hit-test drops click-through **only while you're hovering a control** — so clicks pass through everywhere else but the buttons, tabs and opacity slider stay usable. To drag or resize the overlay, hover it (or turn the toggle off).
+- Windows first; macOS/Linux pass-through is still to come. The pass-through itself is validated on a real Windows build (the test harness only runs the web page, not the native window).
+
 ## Customization profiles now carry their overlay background (0.2.210)
 
 - **A saved customization profile now bundles your overlay background image**, so switching to a profile also restores the background it was saved with — not just the colours, fonts and sliders. The image is stored **locally, in this browser on your own machine** (kept at a reduced size so it fits): it is **never uploaded** and is **left out of the "Copy share code"**, which still carries only your colours and settings. Applying a profile that was saved with no background clears the current one; older profiles saved before this change leave the background untouched.
