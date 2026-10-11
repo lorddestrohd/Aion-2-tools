@@ -34,18 +34,20 @@
     return [...new Set(result)].sort((a,b)=>a-b);
   }
   function mount(root,io={}){
-    let catalog=null,region='',group='',prepared=[],timer=null,disposed=false,serial=0,bossSerial=0,bossData=null,preparedDay='';
-    try{const pref=JSON.parse(localStorage.getItem('a2-event-region')||'{}');region=pref.region||'';group=pref.group||'';}catch(_){}
+    let catalog=null,region='',group='',prepared=[],timer=null,disposed=false,serial=0,bossSerial=0,bossData=null,preparedDay='',killSerial=0,killData=null,killServer='';
+    try{const pref=JSON.parse(localStorage.getItem('a2-event-region')||'{}');region=pref.region||'';group=pref.group||'';killServer=String(pref.killServer||'');}catch(_){}
     const $=s=>root.querySelector(s);
-    function save(){try{localStorage.setItem('a2-event-region',JSON.stringify({region,group}));}catch(_){}}
+    function save(){try{localStorage.setItem('a2-event-region',JSON.stringify({region,group,killServer}));}catch(_){}}
     function render(){
       if(disposed||!root.isConnected)return;
-      bossSerial++;bossData=null;
-      root.innerHTML=`<section class="note"><h2>Regional event timers</h2><p>${esc(catalog.note)}</p><div class="row" style="gap:8px"><label>Game region <select data-region><option value="">Choose a region</option>${catalog.regions.map(r=>`<option value="${esc(r.id)}" ${r.id===region?'selected':''}>${esc(r.name)}</option>`).join('')}</select></label><label data-group-label ${region==='kr'?'':'hidden'}>Korean matching group <select data-group><option value="">Unknown — hide group-specific forecasts</option>${[1,2,3].map(n=>`<option value="${n}" ${group===String(n)?'selected':''}>Group ${n}</option>`).join('')}</select></label></div><p class="small muted">${esc(catalog.source_name)} · source updated ${esc(catalog.source_updated_at)} · checked ${esc(catalog.checked_at)} · review after ${esc(catalog.review_after)}. <a href="https://shugo.gg/timers" target="_blank" rel="noopener noreferrer">Schedule source ↗</a> · <a href="https://aion2codex.wiki/tools/rift-timer" target="_blank" rel="noopener noreferrer">Conflicting rift report ↗</a></p><p data-clock class="small muted"></p><div data-schedule></div></section><section class="note"><h2>Recorded boss defeats</h2><p class="small muted">Submitted observations are separate from schedule forecasts. Region is recorded log metadata; it does not establish physical server or channel. Availability and respawn time remain unknown.</p><div class="row" style="gap:8px"><label>Recorded region <input data-boss-region placeholder="All regions" maxlength="32"></label><label>Search displayed bosses <input data-boss-search placeholder="Boss name or NPC ID"></label><button class="btn small" data-boss-refresh>Load / refresh observations</button></div><p data-boss-status role="status">Load to retrieve public observations from the community server.</p><div data-boss-rows></div><p><a href="${io.logsURL||'#/combat'}">Browse combat logs →</a></p></section>`;
+      bossSerial++;bossData=null;killSerial++;killData=null;
+      root.innerHTML=`<section class="note"><h2>Regional event timers</h2><p>${esc(catalog.note)}</p><div class="row" style="gap:8px"><label>Game region <select data-region><option value="">Choose a region</option>${catalog.regions.map(r=>`<option value="${esc(r.id)}" ${r.id===region?'selected':''}>${esc(r.name)}</option>`).join('')}</select></label><label data-group-label ${region==='kr'?'':'hidden'}>Korean matching group <select data-group><option value="">Unknown — hide group-specific forecasts</option>${[1,2,3].map(n=>`<option value="${n}" ${group===String(n)?'selected':''}>Group ${n}</option>`).join('')}</select></label></div><p class="small muted">${esc(catalog.source_name)} · source updated ${esc(catalog.source_updated_at)} · checked ${esc(catalog.checked_at)} · review after ${esc(catalog.review_after)}. <a href="https://shugo.gg/timers" target="_blank" rel="noopener noreferrer">Schedule source ↗</a> · <a href="https://aion2codex.wiki/tools/rift-timer" target="_blank" rel="noopener noreferrer">Conflicting rift report ↗</a></p><p data-clock class="small muted"></p><div data-schedule></div></section><section class="note"><h2>Field boss kills by server</h2><p class="small muted">Kills found in public combat logs, placed on the home server of the recorded characters who fought the boss. A kill appears when its log is uploaded, not when the boss dies. A visitor from another server reports its own server, so trust a kill more when several uploaders recorded it. The expected return uses a respawn length measured from repeated kills and is the latest it should be back.</p><div class="row" style="gap:8px"><label>Game server <select data-kill-server><option value="">Load kills to choose a server</option></select></label><button class="btn small" data-kill-refresh>Load / refresh kills</button></div><p data-kill-status role="status">Load to retrieve recent kills from the community server.</p><div data-kill-rows></div></section><section class="note"><h2>Recorded boss defeats</h2><p class="small muted">Submitted observations are separate from schedule forecasts. Region is recorded log metadata; it does not establish physical server or channel. Availability and respawn time remain unknown.</p><div class="row" style="gap:8px"><label>Recorded region <input data-boss-region placeholder="All regions" maxlength="32"></label><label>Search displayed bosses <input data-boss-search placeholder="Boss name or NPC ID"></label><button class="btn small" data-boss-refresh>Load / refresh observations</button></div><p data-boss-status role="status">Load to retrieve public observations from the community server.</p><div data-boss-rows></div><p><a href="${io.logsURL||'#/combat'}">Browse combat logs →</a></p></section>`;
       $('[data-region]').onchange=e=>{region=e.target.value;save();render();};
       $('[data-group]').onchange=e=>{group=e.target.value;save();prepare();};
       $('[data-boss-refresh]').onclick=loadBosses;
       $('[data-boss-search]').oninput=renderBosses;
+      $('[data-kill-refresh]').onclick=loadKills;
+      $('[data-kill-server]').onchange=e=>{killServer=e.target.value;save();renderKills();};
       prepare();
     }
     function prepare(){
@@ -67,6 +69,7 @@
       const now=Date.now();
       if(new Date(now).toISOString().slice(0,10)!==preparedDay){prepare();return;}
       $('[data-clock]').textContent=`Device time: ${local(now)} · local zone ${Intl.DateTimeFormat().resolvedOptions().timeZone}. ${new Date(catalog.review_after+'T00:00:00Z').getTime()<=now?'Schedule review is overdue; forecasts may be stale.':''}`;
+      tickKills(now);
       prepared.forEach(({event:e,zone,unavailable,times},i)=>{
         if(unavailable)return;
         const active=times.filter(t=>t<=now&&now<t+e.duration_minutes*60000).at(-1);
@@ -97,7 +100,32 @@
       catch(e){if(n===bossSerial&&!disposed&&root.isConnected){bossData=null;$('[data-boss-rows]').replaceChildren();$('[data-boss-status]').textContent='Could not load observations: '+e.message;}}
       finally{if(n===bossSerial&&!disposed&&root.isConnected)$('[data-boss-refresh]').disabled=false;}
     }
-    function dispose(){disposed=true;serial++;bossSerial++;if(timer)clearInterval(timer);}
+    const serverLabel=k=>(k.server_name||'Server '+k.server)+(k.region?' · '+String(k.region).toUpperCase():'');
+    function tickKills(now){
+      root.querySelectorAll('[data-kill-back]').forEach(el=>{
+        const at=Number(el.dataset.killBack)*1000;
+        el.textContent=at>now?'Expected back within '+countdown(at-now)+' ('+local(at)+')':'Expected back since '+local(at);
+      });
+    }
+    function renderKills(){
+      if(!killData||disposed||!root.isConnected)return;
+      const kills=(killData.kills||[]).filter(k=>k&&k.server!=null&&Number.isFinite(k.killed_at)),servers=new Map();
+      kills.forEach(k=>{if(!servers.has(String(k.server)))servers.set(String(k.server),serverLabel(k));});
+      if(killServer&&!servers.has(killServer))servers.set(killServer,'Server '+killServer+' · no recent kills');
+      $('[data-kill-server]').innerHTML='<option value="">Choose a server</option>'+[...servers].sort((a,b)=>a[1].localeCompare(b[1])).map(([id,name])=>`<option value="${esc(id)}" ${id===killServer?'selected':''}>${esc(name)}</option>`).join('');
+      const rows=kills.filter(k=>String(k.server)===killServer);
+      $('[data-kill-status]').textContent=killServer?`${rows.length} bosses with a recorded kill in the last ${Math.round(killData.window_seconds/3600)} hours. Snapshot ${local(killData.generated_at*1000)}.`:`${servers.size} servers have recorded kills. Choose yours.`;
+      $('[data-kill-rows]').innerHTML=rows.map(k=>`<details style="margin:4px 0"><summary>${esc(k.boss)} · killed ${esc(local(k.killed_at*1000))} · ${Number(k.reports)===1?'1 uploader':esc(Number(k.reports))+' uploaders'}</summary><p>${Number.isFinite(k.respawn_at)?`<span data-kill-back="${esc(k.respawn_at)}"></span> · respawn about ${esc(countdown(k.respawn_seconds*1000))}, measured from ${esc(Number(k.respawn_samples))} gaps between kills`:'Respawn length not measured yet: it needs repeated kills of this boss in uploaded logs.'}</p><p class="small muted">${k.previous_killed_at==null?'':'Previous kill '+esc(local(k.previous_killed_at*1000))+' · '}${(k.logs||[]).slice(0,3).map(id=>sourceLink(id)).join(' · ')}</p></details>`).join('')+(killServer&&!rows.length?'<p class="small muted">No kills recorded for this server yet. They come from public Live Meter logs uploaded by players there.</p>':'');
+      tickKills(Date.now());
+    }
+    async function loadKills(){
+      const n=++killSerial;
+      $('[data-kill-refresh]').disabled=true;$('[data-kill-status]').textContent='Loading recent kills…';
+      try{if(!io.api)throw Error('Community server is unavailable.');const data=await io.api('/api/v1/boss-kills?window=172800');if(n!==killSerial||disposed||!root.isConnected)return;if(!data||!Array.isArray(data.kills))throw Error('The community server does not offer kills yet.');killData=data;renderKills();}
+      catch(e){if(n===killSerial&&!disposed&&root.isConnected){killData=null;$('[data-kill-rows]').replaceChildren();$('[data-kill-status]').textContent='Could not load kills: '+e.message;}}
+      finally{if(n===killSerial&&!disposed&&root.isConnected)$('[data-kill-refresh]').disabled=false;}
+    }
+    function dispose(){disposed=true;serial++;bossSerial++;killSerial++;if(timer)clearInterval(timer);}
     async function load(){
       const n=++serial;root.textContent='Loading event schedules…';
       try{const response=await fetch(io.catalogURL||'/static/event-schedules.json');if(!response.ok)throw Error('Schedule file unavailable');const data=await response.json();if(n!==serial||disposed||!root.isConnected)return;if(data.version!==1)throw Error('Unsupported schedule format');catalog=data;render();timer=setInterval(tick,1000);}
