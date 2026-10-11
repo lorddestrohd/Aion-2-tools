@@ -153,7 +153,7 @@ def _overlay_prefs() -> dict:
     # a game loot/reward popup never hides it. The read below uses each key's own
     # default, so an absent key keeps True here and False for the others.
     prefs = {"resizable": False, "snap_edge": False, "expand_up": False, "always_visible": True,
-             "remember_position": False}
+             "remember_position": True}
     # Remembered drag positions (per overlay), restored at launch instead of
     # re-anchoring to the game window. Machine/monitor-specific, so they live only
     # in ui.json (never the shareable settings backup).
@@ -315,7 +315,7 @@ def _run_overlay(window, api, app_base: str | None = None, party: bool = False) 
     # is unchanged). Windows-only (needs the native window rect).
     remember_position = prefs["remember_position"]
     saved_pos = prefs["positions"].get("party" if party else "meter")
-    last_pos, pending_pos, pending_ticks = None, None, 0
+    last_pos, pending_pos, pending_ticks, anchored = None, None, 0, False
     if win32 and remember_position and saved_pos:
         try:
             hwnd0 = window.native.Handle.ToInt64()
@@ -364,6 +364,18 @@ def _run_overlay(window, api, app_base: str | None = None, party: bool = False) 
             # the new spot once a drag settles (~1s stable), so it returns there next
             # launch. Persisted per overlay (meter vs party).
             cur = win32.rect(hwnd)[:2]
+            if last_pos is None and saved_pos is None and not anchored:
+                # First run with nothing saved yet: place the overlay near the game
+                # window once (the historical default anchor) so it starts in a sane
+                # spot, record it, then stay put. Without this the frameless window
+                # would open at the OS default corner and never follow the game.
+                anchor = _follow_position(None, game.bounds, win32.rect(hwnd), snap=snap, expand_up=expand_up)
+                if anchor != cur:
+                    win32.move(hwnd, *anchor)
+                    cur = anchor
+                _save_overlay_position(app_base, party, cur)
+                last_pos, anchored = cur, True
+                continue
             if cur != last_pos:
                 if cur == pending_pos:
                     pending_ticks += 1

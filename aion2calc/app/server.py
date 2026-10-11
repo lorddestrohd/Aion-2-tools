@@ -924,12 +924,14 @@ class Handler(BaseHTTPRequestHandler):
                               "meter_save_records", "overlay_dps_interpolate", "overlay_show_fps",
                               "overlay_always_visible", "overlay_remember_position",
                               "overlay_text_outline", "overlay_bar_rounded", "overlay_class_color_names",
-                              "overlay_color_cycle", "community_heartbeat", "overlay_row_stripes", "overlay_class_swatch", "overlay_compact_rows", "overlay_rank_numbers", "overlay_highlight_me", "overlay_dps_graph", "overlay_open_on_app_start", "meter_auto_upload", "meter_report_boss_kills")
+                              "overlay_color_cycle", "community_heartbeat", "overlay_row_stripes", "overlay_class_swatch", "overlay_compact_rows", "overlay_rank_numbers", "overlay_highlight_me", "overlay_dps_graph", "overlay_open_on_app_start", "meter_auto_upload", "meter_report_boss_kills", "meter_autostart")
             for flag in _ui_bool_flags:
                 if flag in body and type(body[flag]) is not bool:
                     raise ValueError(f"{flag} must be true or false")
             _ui_int_ranges = (("meter_reset_delay", 1, 120), ("meter_max_records", 1, 500),
                               ("meter_dummy_record_seconds", 5, 3600),
+                              ("meter_log_cache_mb", 0, 1048576),   # 0 disables pruning; up to 1 TiB
+
                               ("overlay_max_players", 1, 24), ("overlay_width", 260, 800),
                               ("overlay_height", 0, 800),
                               ("overlay_row_height", 14, 48), ("overlay_font_scale", 80, 160),
@@ -1041,6 +1043,28 @@ PING: dict = {"at": time.time()}
 APP_WINDOW: dict = {}
 
 
+def _auto_upload_on_quit() -> None:
+    """On quit / window close, upload the just-stopped session to the configured
+    server (on by default, the same ``meter_auto_upload`` setting as Stop). Bounded
+    and best-effort: a slow or failing upload can never hold up or break shutdown."""
+    if not ui_settings().get("meter_auto_upload", True):
+        return
+    from .meter_runner import runner
+    r = runner()
+    if not r.has_data():
+        return
+
+    def _do():
+        try:
+            from ..combat import share
+            share.upload(r.to_a2log(), visibility="unlisted")
+        except Exception:
+            traceback.print_exc()
+    worker = threading.Thread(target=_do, daemon=True, name="quit-upload")
+    worker.start()
+    worker.join(timeout=20)   # don't let a hung upload delay shutdown beyond this
+
+
 def schedule_shutdown() -> None:
     """Let the response finish, stop capture, close native windows, then stop serving."""
     HTTPD["closing"] = True
@@ -1049,11 +1073,24 @@ def schedule_shutdown() -> None:
         from . import overlay_launch
         from .meter_runner import runner
         from .windows import close_app_browser
-        for close in (close_app_browser, runner().stop, overlay_launch.close):
+        r = runner()
+        # Only auto-upload on quit if capture was still running — if the user already
+        # hit Stop, the stop path already auto-uploaded, so this avoids a duplicate.
+        was_running = bool(r.running or (r.thread and r.thread.is_alive()))
+        for close in (close_app_browser, r.stop):
             try:
                 close()
             except Exception:
                 traceback.print_exc()
+        if was_running:
+            try:
+                _auto_upload_on_quit()
+            except Exception:
+                traceback.print_exc()
+        try:
+            overlay_launch.close()
+        except Exception:
+            traceback.print_exc()
         proc = APP_WINDOW.get("process")
         if proc is not None and proc.poll() is None:
             try:
@@ -1079,7 +1116,7 @@ def ui_settings() -> dict:
                 "overlay_only_in_combat": False, "overlay_auto_expand": False,
                 # Visual group (all inert by default so the overlay looks unchanged until enabled).
                 "overlay_resizable": False, "overlay_snap_edge": False, "overlay_expand_up": False,
-                "overlay_always_visible": True, "overlay_remember_position": False,
+                "overlay_always_visible": True, "overlay_remember_position": True,
                 "overlay_font_scale": 100, "overlay_font_weight": 600, "overlay_font_family": "",
                 "overlay_glow": False, "overlay_glow_color": "#e8cf8e", "overlay_hp_color": "#e05a5a",
                 "overlay_ttk_color": "#8fb3d0",
@@ -1089,6 +1126,7 @@ def ui_settings() -> dict:
                 "overlay_bg_opacity": 100, "overlay_bg_zoom": 100, "overlay_bg_darken": 20, "overlay_bg_set": False,
                 "overlay_long_names_scroll": False, "overlay_party_enabled": False,
                 "meter_save_records": True, "meter_auto_upload": True, "meter_report_boss_kills": False,
+                "meter_autostart": True, "meter_log_cache_mb": 1024,
                 "overlay_name_mode": "name",
                 "overlay_dps_interpolate": True, "overlay_interpolate_ms": 50, "overlay_show_fps": False,
                 "overlay_presets": []}
@@ -1174,6 +1212,39 @@ def serve(port: int = 8765, open_browser: bool = True, sync: bool = True, host: 
             except Exception:
                 pass
         threading.Timer(1.2, _overlay_on_app_start).start()
+    # Start the live meter automatically on launch (on by default), so the app and
+    # overlay show data without pressing Start — Start/Stop then just pauses/resumes.
+    # Best-effort and only on a real user-facing launch (same guard as the overlay),
+    # and only when packet capture is actually available, so a missing Npcap/libpcap
+    # never surfaces a launch-time error; the user can still press Start to be walked
+    # through installing it. Built-in a2tools engine, auto-detected port, remembered
+    # Players scope default.
+    if open_overlay and ui_settings().get("meter_autostart", True):
+        def _meter_on_app_start():
+            try:
+                from . import capture_setup
+                from .meter_runner import runner
+                r = runner()
+                if r.running or (r.thread and r.thread.is_alive()):
+                    return
+                state = capture_setup.status()
+                if not (state.get("supported") and state.get("installed")):
+                    return
+                r.start("a2tools", auto_port=True, scope="party")
+            except Exception:
+                pass    # auto-start is best-effort; Start always remains available
+        threading.Timer(1.6, _meter_on_app_start).start()
+    # Trim the logs folder to the user's cache cap once at launch too, so an
+    # already-oversized folder is cleaned even before the next capture saves.
+    def _prune_logs_on_start():
+        try:
+            cap_mb = ui_settings().get("meter_log_cache_mb", 1024)
+            if isinstance(cap_mb, int) and not isinstance(cap_mb, bool) and cap_mb > 0:
+                from ..combat.sessions import prune_logs
+                prune_logs(cap_mb * 1024 * 1024)
+        except Exception:
+            pass
+    threading.Timer(2.0, _prune_logs_on_start).start()
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

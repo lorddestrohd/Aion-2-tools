@@ -122,6 +122,15 @@ def test_overlay_positions_are_machine_local_not_in_backup(home):
     assert result["settings"]["overlay_remember_position"] is True
 
 
+def test_overlay_remembers_position_by_default(home):
+    # Default ON: the overlay reopens where the user last dragged it instead of
+    # re-anchoring to the game window each time (the reported stop/reopen bug).
+    assert overlay._overlay_prefs()["remember_position"] is True
+    from aion2calc.paths import write_user_json
+    write_user_json({"overlay_remember_position": False}, "ui.json")
+    assert overlay._overlay_prefs()["remember_position"] is False   # still opt-out-able
+
+
 def test_overlay_prefs_reads_remembered_positions(home):
     from aion2calc.paths import write_user_json
     assert overlay._overlay_prefs()["positions"] == {"meter": None, "party": None}

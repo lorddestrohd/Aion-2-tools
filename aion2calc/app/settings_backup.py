@@ -26,11 +26,11 @@ _BOOL_KEYS = ("app_window", "auto_update", "overlay_on_start", "tray_on_close", 
               "overlay_always_visible", "overlay_remember_position", "overlay_text_outline",
               "overlay_bar_rounded", "overlay_class_color_names", "overlay_color_cycle",
               "overlay_row_stripes", "overlay_class_swatch", "overlay_compact_rows", "overlay_rank_numbers",
-              "overlay_highlight_me", "overlay_dps_graph", "overlay_open_on_app_start", "meter_auto_upload", "meter_report_boss_kills")
+              "overlay_highlight_me", "overlay_dps_graph", "overlay_open_on_app_start", "meter_auto_upload", "meter_report_boss_kills", "meter_autostart")
 
 # key -> (min, max) for whole-number settings.
 _INT_KEYS = {"meter_reset_delay": (1, 120), "meter_max_records": (1, 500),
-             "meter_dummy_record_seconds": (5, 3600),
+             "meter_dummy_record_seconds": (5, 3600), "meter_log_cache_mb": (0, 1048576),
              "overlay_max_players": (1, 24), "overlay_width": (260, 800), "overlay_height": (0, 800),
              "overlay_row_height": (14, 48),
              "overlay_font_scale": (80, 160), "overlay_font_weight": (400, 800),

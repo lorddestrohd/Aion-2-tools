@@ -144,6 +144,33 @@
     }catch(_){splitBtn.textContent="Error";}
     finally{setTimeout(()=>{if(splitBtn.isConnected){splitBtn.textContent=orig;splitBtn.disabled=false;}},1200);}
   };
+  // Start/Stop capture from the overlay — mirrors the app's button. Stop uses the
+  // same action the app does; Start begins built-in (a2tools) live capture with the
+  // user's remembered Players scope (shared localStorage, same origin as the app).
+  const captureBtn=$("#ovcapture");
+  function syncCapture(){
+    if(!captureBtn)return;
+    const running=!!(lastSnap&&lastSnap.running), finalizing=!!(lastSnap&&lastSnap.finalizing);
+    if(captureBtn._busy)return;                       // mid-request: leave the pending label
+    captureBtn.textContent=finalizing?"Stopping…":running?"Stop":"Start";
+    captureBtn.classList.toggle("on",running||finalizing);
+    captureBtn.disabled=finalizing;
+    captureBtn.title=running?"Stop capturing combat (same as Stop in the app)":"Start capturing combat (same as Start in the app)";
+  }
+  if(captureBtn)captureBtn.onclick=async()=>{
+    const running=!!(lastSnap&&lastSnap.running);
+    let scope="party"; try{const v=localStorage.getItem("meter-scope");if(["auto","party","self","all"].includes(v))scope=v;}catch(_){}
+    const body=running?{action:"stop"}:{action:"start",source:"a2tools",auto_port:true,scope};
+    captureBtn._busy=true; captureBtn.disabled=true; captureBtn.textContent=running?"Stopping…":"Starting…";
+    try{
+      const r=await fetch("/api/meter",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+      if(!r.ok){let m="";try{m=(await r.json()).error||"";}catch(_){}
+        throw Error(m||("HTTP "+r.status));}
+      await r.json();
+    }catch(e){captureBtn.textContent="Error";captureBtn.title=String(e.message||e).slice(0,256);
+      await new Promise(res=>setTimeout(res,1400));}
+    finally{captureBtn._busy=false;captureBtn.disabled=false;await pollMeter();syncCapture();}
+  };
   $("#ovcombine").onchange = async () => {
     const input=$("#ovcombine"), message=$("#ovpetstatus"); input.disabled=true;
     try { const response=await fetch("/api/meter",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"view",combine_pets:input.checked})});if(!response.ok)throw Error("Could not change pet grouping");await response.json();message.textContent="";await pollMeter(); }
@@ -155,9 +182,24 @@
     const api = nativeReady && window.pywebview?.api;
     if (api && typeof api[name] === "function") api[name](...args).catch(() => {});
   }
-  function fit() {
-    nativeCall("fit", Math.ceil($("#ov").getBoundingClientRect().width), Math.ceil($("#ov").getBoundingClientRect().height));
+  // Coalesce native window-resize calls to one per animation frame. Both the
+  // ResizeObserver and a drag-resize can ask to fit many times a frame; without
+  // this, each call hops the pywebview bridge to resize the native window, and the
+  // resulting relayout re-triggers the observer — a feedback loop that made
+  // drag-resize jump and lag. `fitSuspended` lets a drag own the sizing outright.
+  let fitQueued = false, fitSuspended = false;
+  function fitNow() {
+    if (fitQueued) return;
+    fitQueued = true;
+    requestAnimationFrame(() => {
+      fitQueued = false;
+      const el = $("#ov");
+      nativeCall("fit", Math.ceil(el.getBoundingClientRect().width), Math.ceil(el.getBoundingClientRect().height));
+    });
   }
+  // The ResizeObserver path respects a drag's authority; the drag calls fitNow()
+  // directly so the window tracks the pointer without the observer fighting it.
+  function fit() { if (!fitSuspended) fitNow(); }
   function applyOpacity() {
     document.documentElement.style.setProperty("--ovbg", op);
     nativeCall("set_opacity", op);
@@ -452,6 +494,7 @@
     }
     finally { clearTimeout(timeout); polling = false; }
     if (tab === "meter") renderMeter();
+    syncCapture();
   }
   $("#ovretry").onclick=()=>pollMeter();
   setInterval(() => { if (tab === "meter") pollMeter(); }, 500);
@@ -472,15 +515,17 @@
       const rect=card?card.getBoundingClientRect():{width:340,height:120};
       const startW=rect.width, startH=rect.height;
       try{grip.setPointerCapture(e.pointerId);}catch(_){}
+      fitSuspended=true;   // the drag owns sizing; the ResizeObserver must not fight it
       const move=ev=>{
         if(horiz){userWidth=Math.max(260,Math.min(800,Math.round(startW+(ev.clientX-startX))));
           document.documentElement.style.setProperty('--ov-width',userWidth+'px');}
         if(vert){userHeight=Math.max(70,Math.min(800,Math.round(startH+(ev.clientY-startY))));
           document.documentElement.style.setProperty('--ov-height',userHeight+'px');}
-        fit();
+        fitNow();
       };
       const up=()=>{
         document.removeEventListener("pointermove",move); document.removeEventListener("pointerup",up);
+        fitSuspended=false; fitNow();   // resume observer-driven fit and settle the final size
         const body={};
         if(horiz&&userWidth!=null)body.overlay_width=userWidth;
         if(vert&&userHeight!=null)body.overlay_height=userHeight;

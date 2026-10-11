@@ -33,6 +33,48 @@ def save(doc: dict, name: str) -> Path:
     return target
 
 
+def prune_logs(cap_bytes: int, keep=frozenset()) -> dict:
+    """Keep the combat-logs folder under ``cap_bytes`` by deleting the oldest
+    ``session-*.a2log.json`` files first, so a very long or busy capture session
+    (which can write hundreds of rollover parts) cannot grow the folder without
+    bound. Files named in ``keep`` — the session currently being written — are
+    never removed. Best-effort: returns what it did and never raises.
+
+    Oldest-first by modification time means the oldest recordings (and the oldest
+    archive parts, which share a timestamp) go first; newer recordings stay."""
+    result = {"removed": 0, "freed_bytes": 0, "total_bytes": 0, "cap_bytes": int(cap_bytes)}
+    if cap_bytes is None or cap_bytes <= 0:
+        return result
+    files = []
+    total = 0
+    try:
+        candidates = list(logs_dir().glob("session-*.a2log.json"))
+    except OSError:
+        return result
+    for target in candidates:
+        try:
+            stat = target.stat()
+        except OSError:
+            continue
+        files.append((stat.st_mtime, stat.st_size, target))
+        total += stat.st_size
+    files.sort(key=lambda row: row[0])          # oldest first
+    for _mtime, size, target in files:
+        if total <= cap_bytes:
+            break
+        if target.name in keep:
+            continue
+        try:
+            target.unlink()
+        except OSError:
+            continue
+        total -= size
+        result["freed_bytes"] += size
+        result["removed"] += 1
+    result["total_bytes"] = total
+    return result
+
+
 _metadata_cache = OrderedDict()
 _metadata_lock = threading.Lock()
 
