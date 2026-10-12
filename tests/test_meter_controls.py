@@ -148,6 +148,16 @@ def test_click_through_toggle_is_wired_in_settings_and_overlay():
     assert "devicePixelRatio" in OVERLAY_JS
 
 
+def test_enemy_hp_shown_as_percentage_not_raw_numbers():
+    # Enemy HP is on a much larger scale than damage (verified from captures), so the
+    # overlay shows a percentage + bar, not the raw internal current/max numbers that
+    # can't line up with damage. The raw values move to a labelled hover tooltip.
+    assert ">${Math.round(target.hp_pct*100)}%</span>" in OVERLAY_JS
+    assert "Game internal HP " in OVERLAY_JS
+    # The raw current/max is no longer printed inline next to the percentage.
+    assert "%${target.current_hp" not in OVERLAY_JS
+
+
 def test_capture_toggle_ignores_clicks_not_begun_on_the_button():
     # Dragging the opacity slider can shift the frameless overlay under the cursor,
     # so a synthesized mouse click can land on Start/Stop and stop the meter. The

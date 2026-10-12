@@ -1,3 +1,8 @@
+## Enemy HP shown as a percentage, not a mismatched raw number (0.2.215)
+
+- **Fixed the confusing "enemy HP doesn't match my damage" readout.** Investigated with two diagnostic captures plus the game's own combat-analysis screen: the game killed a mob with **6,420 damage** that the packets report as **119.70K HP** — enemy HP is carried on a **~16–19× larger internal scale than damage**, so printing it next to your damage (e.g. `0 / 810K`) could never line up. Our damage numbers are correct (they match the game's own meter); the raw HP value just isn't comparable to them.
+- The overlay now shows the target's remaining HP as a **percentage and bar** (both exact and packet-sourced). The raw internal HP numbers are still available **on hover**, clearly labelled as the game's internal scale. This is a display change only — no number is invented or rescaled.
+
 ## Fix: the overlay's opacity slider could stop the meter (0.2.214)
 
 - **Fixed: dragging or clicking the overlay's opacity slider could stop the live meter** for some users. The overlay is a frameless always-on-top window; interacting with the slider could shift it under a stationary cursor, so the browser's resulting mouse click landed on the Start/Stop button in the header and posted a stop. The Start/Stop button now only toggles when the click genuinely *began* on the button, so a click that drifted onto it from elsewhere is ignored. Keyboard activation of the button still works.

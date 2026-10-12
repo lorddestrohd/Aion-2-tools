@@ -424,8 +424,13 @@
     if(showT){
       const top=(target.contributors||[]).slice(0,3)
         .map(c=>`${esc(c.name)} ${kfmt(c.dps)}/s`).join(' · ');
+      // Enemy HP is shown as a percentage, not the raw current/max numbers: the
+      // game's internal HP value is on a much larger scale than damage (verified
+      // ~16-19x), so printing it next to your damage invites a comparison that can
+      // never line up. The exact percentage (and the bar below) are trustworthy;
+      // the raw internal values stay available on hover, clearly labelled.
       const hp=showEnemyHp&&target.hp_pct!=null
-        ? ` <span class="ovhp">${Math.round(target.hp_pct*100)}%${target.current_hp!=null?` (${kfmt(target.current_hp)}${target.max_hp?'/'+kfmt(target.max_hp):''})`:''}</span>` : '';
+        ? ` <span class="ovhp"${target.current_hp!=null?` title="Game internal HP ${kfmt(target.current_hp)}${target.max_hp?' / '+kfmt(target.max_hp):''} — a different, larger scale than damage numbers, so it is shown here as a percentage"`:''}>${Math.round(target.hp_pct*100)}%</span>` : '';
       const ttk=showTtk&&target.ttk!=null&&isFinite(target.ttk)
         ? ` <span class="ovttk">TTK ${fmtTtk(target.ttk)}</span>` : '';
       // When several enemies are being struck in the same instant (AOE/cleave), the
