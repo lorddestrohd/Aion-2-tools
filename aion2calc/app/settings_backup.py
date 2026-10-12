@@ -96,6 +96,9 @@ def _clean(data: dict) -> dict:
             clean[key] = {k: v.lower() for k, v in value.items()}
         elif key == "overlay_presets":
             clean[key] = clean_presets(value)
+        elif key == "hotkeys":
+            from . import hotkeys as _hotkeys
+            clean[key] = _hotkeys.clean_hotkeys(value)
         # Any other key is ignored rather than trusted.
     return clean
 

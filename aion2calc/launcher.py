@@ -184,6 +184,58 @@ def smoke_test(out: str | None = None) -> int:
     return 0 if ok else 1
 
 
+def _start_hotkeys(port: int, open_app):
+    """Start the global-hotkey listener (Windows-only; a no-op elsewhere).
+
+    Best-effort and off the main thread, so it can never block or break startup.
+    Dispatch runs in-process — each hotkey calls the same code the matching UI
+    action does — and defaults to no bindings until the user assigns keys.
+    Returns the manager (kept alive by the caller) or None.
+    """
+    try:
+        from .app import hotkeys, overlay_launch, server
+        from .app.meter_runner import runner
+        from .paths import write_user_json
+        url = f"http://127.0.0.1:{port}/overlay"
+
+        def overlay_open() -> bool:
+            p = overlay_launch._PROCESS
+            return p is not None and p.poll() is None
+
+        def set_ui(**changes):
+            cur = server.ui_settings()
+            cur.update(changes)
+            write_user_json(cur, "ui.json")
+
+        def toggle_overlay():
+            overlay_launch.close() if overlay_open() else overlay_launch.launch(url)
+
+        def toggle_meter():
+            r = runner()
+            r.stop() if r.running else r.start("a2tools", auto_port=True, scope="auto")
+
+        def toggle_party_overlay():
+            set_ui(overlay_party_enabled=not server.ui_settings().get("overlay_party_enabled"))
+            if overlay_open():
+                overlay_launch.launch(url)        # re-sync the party overlay with the new setting
+
+        dispatch = {
+            "toggle_overlay": toggle_overlay,
+            "toggle_meter": toggle_meter,
+            "clear_meter": lambda: runner().clear_session(),
+            "toggle_click_through": lambda: set_ui(
+                overlay_click_through=not server.ui_settings().get("overlay_click_through")),
+            "toggle_party_overlay": toggle_party_overlay,
+            "open_app": open_app,
+        }
+        manager = hotkeys.HotkeyManager(lambda: server.ui_settings().get("hotkeys") or {}, dispatch)
+        manager.start()
+        return manager
+    except Exception:
+        traceback.print_exc()
+        return None
+
+
 def main(argv=None) -> int:
     if os.environ.get("AION2CALC_OVERLAY"):       # the app re-ran the bundle to open the native overlay
         from . import overlay
@@ -243,6 +295,9 @@ def main(argv=None) -> int:
             if proc is not None:
                 server.APP_WINDOW["process"] = proc
             return proc
+        # Global hotkeys (Windows): inert until the user assigns keys in Settings.
+        # The daemon thread's bound method keeps the manager alive, so no ref needed.
+        _start_hotkeys(port, open_app_window)
         from .app import tray as tray_mod
         # "Collapse to tray": closing the window keeps the app (and meter/overlay)
         # running behind a tray icon instead of quitting. Only when a tray backend

@@ -1857,6 +1857,10 @@ async function pageSettings() {
       <p class="small muted">A PNG or JPEG (8 MB max) shown behind the overlay card. Set Visibility above 0 to show it. The image is stored locally, not in the settings backup.</p></div></div>
     <div class="setrow" data-g="overlay"><div class="lbl">Overlay look presets</div><div><div class="row"><select id="ov-preset" style="min-width:200px">${overlayPresetOptions(ui)}</select><button class="btn small" id="ov-preset-apply">Apply</button><button class="btn small" id="ov-preset-save">Save current look as…</button><button class="btn small" id="ov-preset-delete">Delete</button><button class="btn small" id="ov-preset-copy">Copy share code</button><button class="btn small" id="ov-preset-import">Paste a shared code…</button><span id="ov-preset-msg" class="small muted" role="status"></span></div>
       <p class="small muted">A preset bundles the overlay's colors, fonts, glow, enemy-HP color, background sliders, name display and per-class bar colors (not the background image). Saved presets ride the settings backup file. <strong>Copy share code</strong> turns the selected preset into a short code to send a friend; <strong>Paste a shared code</strong> saves one they sent you.</p></div></div>
+    <div class="setrow" data-g="overlay"><div class="lbl">Hotkeys <span class="muted small">(Windows)</span></div><div>
+      <div id="hotkey-rows"></div>
+      <div class="row" style="margin-top:6px"><button class="btn small" id="hotkeys-save">Save hotkeys</button><span id="hotkeys-msg" class="small muted" role="status"></span></div>
+      <p class="small muted">Global shortcuts that work even while the game is focused (Windows only). Click a field and press the key combo (e.g. Ctrl+Shift+M), then <strong>Save hotkeys</strong>; <strong>Clear</strong> unbinds. Changes take effect within a couple of seconds. Leave all blank for no hotkeys (the default). Ride the settings backup.</p></div></div>
     <div class="setrow" data-g="appearance"><div class="lbl">Combat class colors</div><div id="class-colors"></div></div><div class="setrow" data-g="system"><div class="lbl">Game database</div><div>${n0(s.db.items)} items · last update ${s.db.last_sync ? new Date(s.db.last_sync.at * 1000).toLocaleString() : "never"} <button class="btn small" id="sync">Check now</button> <button class="btn small" id="asset-reindex">Re-index cached icons</button> <button class="btn small" id="asset-report">Export image coverage</button> <button class="btn small" id="retry-images">Retry images</button><span id="asset-msg" class="small muted" role="status" aria-live="polite"></span></div></div>
     <div class="setrow" data-g="system"><div class="lbl">Storage maintenance</div><div><div class="row"><button class="btn small" id="storage-inspect">Inspect cache / updates</button><button class="btn small" id="storage-cache">Clean old disposable cache</button><button class="btn small" id="storage-updates">Clean old update files</button></div><p class="small muted">Web/comparison cache: 7 days; images: 30 days. Updates retain two packages, helpers for 7 days, and at least five logs / 30 days. Active or uninspectable helpers are preserved. Cache images may need downloading again.</p><p id="storage-message" role="status"></p><div id="maintenance-details"></div></div></div>
     <div class="setrow" data-g="system"><div class="lbl">Updates</div><div><label><input type="checkbox" id="autoupd" ${ui.auto_update !== false ? "checked" : ""}> check and prompt for updates on launch</label></div></div>
@@ -2067,6 +2071,33 @@ async function pageSettings() {
   };
   $('#ov-open-on-app').onchange = () => api('/api/ui', { overlay_open_on_app_start: $('#ov-open-on-app').checked }).then(() => toast('Saved · applies on next launch'));
   $('#ov-close-on-stop').onchange = () => api('/api/ui', { overlay_close_on_stop: $('#ov-close-on-stop').checked }).then(() => toast('Saved'));
+  // Global hotkeys: a capture field per bindable action. Keep the action list in
+  // sync with aion2calc/app/hotkeys.py ACTIONS.
+  (function(){
+    const host=$("#hotkey-rows"); if(!host) return;
+    const ACTIONS=[["toggle_overlay","Show / hide the overlay"],["toggle_meter","Start / stop the meter"],["clear_meter","Clear the meter (battle reset)"],["toggle_click_through","Toggle click-through"],["toggle_party_overlay","Show / hide the Party-DPS overlay"],["open_app","Open the app window"]];
+    const saved=(ui && ui.hotkeys && typeof ui.hotkeys==='object')?ui.hotkeys:{};
+    host.innerHTML=ACTIONS.map(([a,label])=>`<div class="row" style="gap:8px;margin:2px 0"><span style="min-width:230px">${esc(label)}</span><input type="text" readonly class="hotkey-input" data-action="${esc(a)}" value="${esc(saved[a]||'')}" placeholder="Click, then press keys" style="width:180px"><button type="button" class="btn small hotkey-clear" data-action="${esc(a)}">Clear</button></div>`).join('');
+    const NAMED={' ':'Space','Escape':'Esc','ArrowUp':'Up','ArrowDown':'Down','ArrowLeft':'Left','ArrowRight':'Right','Enter':'Enter','Tab':'Tab','Backspace':'Backspace','Delete':'Delete','Insert':'Insert','Home':'Home','End':'End','PageUp':'PageUp','PageDown':'PageDown'};
+    function comboFromEvent(e){
+      if(['Control','Alt','Shift','Meta','OS'].includes(e.key)) return null;   // modifier alone
+      const mods=[]; if(e.ctrlKey)mods.push('Ctrl'); if(e.altKey)mods.push('Alt'); if(e.shiftKey)mods.push('Shift'); if(e.metaKey)mods.push('Win');
+      let k=e.key;
+      if(NAMED[k])k=NAMED[k];
+      else if(/^F([1-9]|1[0-9]|2[0-4])$/i.test(k))k=k.toUpperCase();
+      else if(k.length===1)k=k.toUpperCase();
+      else if(e.code&&e.code.indexOf('Digit')===0)k=e.code.slice(5);
+      else return null;
+      return mods.concat([k]).join('+');
+    }
+    $$(".hotkey-input").forEach(inp=>{ inp.onkeydown=(e)=>{e.preventDefault();const c=comboFromEvent(e);if(c)inp.value=c;}; });
+    $$(".hotkey-clear").forEach(btn=>btn.onclick=()=>{const inp=host.querySelector('.hotkey-input[data-action="'+btn.dataset.action+'"]');if(inp)inp.value='';});
+    $("#hotkeys-save").onclick=async()=>{
+      const map={}; $$(".hotkey-input").forEach(inp=>{const v=inp.value.trim(); if(v)map[inp.dataset.action]=v;});
+      const msg=$("#hotkeys-msg"); msg.textContent='Saving…';
+      try{await api('/api/ui',{hotkeys:map}); msg.textContent='Saved';}catch(e){msg.textContent=e.message;}
+    };
+  })();
   $('#ov-stream-copy').onclick = () => { const u=$('#ov-stream-url'); u.select?.(); copyText(u.value); const m=$('#ov-stream-msg'); if(m){m.textContent='Copied — paste into an OBS Browser Source.';setTimeout(()=>{if(m.isConnected)m.textContent='';},2000);} };
   $("#appwin").onchange = () => api("/api/ui", { app_window: $("#appwin").checked }).then(() => toast("Saved"));
   $("#community-heartbeat").onchange = () => api("/api/ui", { community_heartbeat: $("#community-heartbeat").checked }).then(() => toast("Saved"));
