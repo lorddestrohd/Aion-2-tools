@@ -1,3 +1,7 @@
+## Fix: the overlay's opacity slider could stop the meter (0.2.214)
+
+- **Fixed: dragging or clicking the overlay's opacity slider could stop the live meter** for some users. The overlay is a frameless always-on-top window; interacting with the slider could shift it under a stationary cursor, so the browser's resulting mouse click landed on the Start/Stop button in the header and posted a stop. The Start/Stop button now only toggles when the click genuinely *began* on the button, so a click that drifted onto it from elsewhere is ignored. Keyboard activation of the button still works.
+
 ## Configurable global hotkeys (0.2.213)
 
 - **New Settings → Overlay → Hotkeys section (Windows).** Assign a global shortcut to any of: show/hide the overlay, start/stop the meter, clear the meter (battle reset), toggle click-through, show/hide the Party-DPS overlay, and open the app window. They fire even while the game has focus. Click a field, press the combo (e.g. Ctrl+Shift+M), Save; Clear unbinds.
