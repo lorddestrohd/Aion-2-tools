@@ -1,3 +1,9 @@
+## Configurable global hotkeys (0.2.213)
+
+- **New Settings → Overlay → Hotkeys section (Windows).** Assign a global shortcut to any of: show/hide the overlay, start/stop the meter, clear the meter (battle reset), toggle click-through, show/hide the Party-DPS overlay, and open the app window. They fire even while the game has focus. Click a field, press the combo (e.g. Ctrl+Shift+M), Save; Clear unbinds.
+- **Off by default** — no keys are bound until you assign them, so nothing changes for existing setups. Bindings ride the settings backup.
+- Dispatch runs in-process (each hotkey calls the same code the on-screen button does), and only the listed actions can be bound, each validated — a settings file can't register an arbitrary key. macOS/Linux global hotkeys are still to come; the pass is Windows-first.
+
 ## Stopping the meter no longer hides the overlay (0.2.212)
 
 - **The overlay now stays open when you stop the meter.** Previously, pressing Stop — including the overlay's own Stop button — closed the transparent overlay, which was jarring (the overlay you just clicked vanished). Now stopping leaves the overlay up showing the last fight's numbers, with its Start button ready to go again.

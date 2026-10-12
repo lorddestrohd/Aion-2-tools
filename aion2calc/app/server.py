@@ -951,6 +951,9 @@ class Handler(BaseHTTPRequestHandler):
                 if key in body:
                     if not isinstance(body[key], int) or isinstance(body[key], bool) or not lo <= body[key] <= hi:
                         raise ValueError(f"{key} must be a whole number from {lo} to {hi}")
+            if "hotkeys" in body:
+                from . import hotkeys as _hotkeys
+                cur["hotkeys"] = _hotkeys.clean_hotkeys(body["hotkeys"])
             cur.update({k: v for k, v in body.items() if k in ("app_window", "auto_update", "combat_colors",
                                                                *(k for k, _, _ in _ui_int_ranges), *_ui_bool_flags)})
             write_user_json(cur, "ui.json")
@@ -1150,7 +1153,7 @@ def ui_settings() -> dict:
                 "meter_autostart": True, "meter_log_cache_mb": 1024,
                 "overlay_name_mode": "name",
                 "overlay_dps_interpolate": True, "overlay_interpolate_ms": 50, "overlay_show_fps": False,
-                "overlay_presets": []}
+                "overlay_presets": [], "hotkeys": {}}
     return {**defaults, **(read_json("ui.json") if data_file("ui.json").exists() else {})}
 
 
