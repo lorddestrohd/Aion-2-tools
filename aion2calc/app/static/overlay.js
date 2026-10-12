@@ -483,8 +483,10 @@
     if(showC) $("#ovcontribution").textContent=`Your contribution: ${Math.round((c.share||0)*100)}% · ${kfmt(c.damage)} (${kfmt(c.dps)}/s)`;
     recordGraph(s, snap, players);
     // Show meter only during combat: collapse to the header when idle (the window
-    // then shrinks via fit), so the overlay is unobtrusive between pulls.
-    if(onlyInCombat && (!s.running || snap.paused || over)){
+    // then shrinks via fit), so the overlay is unobtrusive between pulls. A brief
+    // damage pause while an engaged boss is still alive is a mechanic, not the end of
+    // the fight, so keep the meter open through it — never collapse mid-boss.
+    if(onlyInCombat && (!s.running || over || (snap.paused && snap.boss_alive!==true))){
       $("#ovcontent").innerHTML='';
       for(const id of ["#ovmetrics","#ovping","#ovtarget","#ovhpbar","#ovttkbar","#ovcontribution","#ovdummy","#ovidentity","#ovgraph"])$(id).hidden=true;
       $("#ovstatus").textContent=s.running?'Idle · waiting for combat':'Idle';
