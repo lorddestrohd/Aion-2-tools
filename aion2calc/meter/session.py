@@ -24,6 +24,15 @@ class Record:
     sequence: int = 0
 
 
+#: Being engaged with one enemy for at least this long (ms since first contact) marks it
+#: a "major" engagement — a mini-boss or elite — so the overlay holds through its mechanic
+#: lulls and segments it like a boss. The catalog does not flag mini-bosses, so this
+#: sustained engagement is the inferred signal; quick trash dies well inside it and never
+#: qualifies. Measured as elapsed time since first contact (not a hit span), so an early
+#: mechanic pause is still covered once the threshold passes.
+MAJOR_ENGAGE_MS = 12_000
+
+
 class NoIdentifiedPlayerData(ValueError):
     """The selected scope cannot yet form an identified combat report."""
 
@@ -46,6 +55,11 @@ class CombatSession:
         result.runs[self.run].pop("started_at", None)
         result._boss_attempt = copy.deepcopy(self._boss_attempt)
         result.wipe_splits = self.wipe_splits
+        result._engaged_major = set(self._engaged_major)
+        result._major_below = set(self._major_below)
+        result._engage_span = dict(self._engage_span)
+        result.reset_splits = self.reset_splits
+        result._pending_reset = self._pending_reset
         result._zone_reset_seen = False  # A continuation part never captured the run's entry.
         return result
 
@@ -88,6 +102,25 @@ class CombatSession:
         self._storage_players = {}
         self._boss_attempt = None
         self.wipe_splits = 0
+        # Bosses (epoch, entity) a party/self attack has engaged, and the subset seen
+        # currently below full HP. A "major" engagement is a flagged boss OR any enemy
+        # the party has been fighting for at least MAJOR_ENGAGE_MS (a mini-boss or elite:
+        # the catalog does not flag mini-bosses, so we infer a worth-holding fight from a
+        # sustained engagement, while quick trash — which dies in seconds — never qualifies
+        # and still clears between pulls). A major engagement that climbs back to full HP
+        # is a leash/reset (the party wiped or ran out — more reliable than player-death
+        # telemetry, which is missed when its zone goes out of packet range), so it starts
+        # a fresh attempt. ``reset_splits`` counts those, mirroring ``wipe_splits``.
+        self._engaged_major = set()
+        self._major_below = set()
+        self._engage_span = {}        # (epoch, enemy not yet major) -> first-contact ms
+        self.reset_splits = 0
+        # Staged ("potential") reset: the local player revived after dying during a boss
+        # engagement (a graveyard release / runback). Never resets on its own — a
+        # battle-rez mid-fight also revives — it only becomes a real reset once an engaged
+        # boss is actually seen back at full HP, which is what confirms the attempt
+        # restarted. Cleared on that confirmation, and on a boss kill (which is not a reset).
+        self._pending_reset = False
 
     def _check_boss_wipe(self, timestamp_ms, engine):
         attempt = self._boss_attempt
@@ -290,6 +323,21 @@ class CombatSession:
                         actors.add(actor)
                 self._storage_players.setdefault(scope, set()).update((self.epoch, actor) for actor in actors)
             if isinstance(event, DamageEvent):
+                # Classify the enemies our party actually engaged, so a later return to
+                # full HP (leash/reset) is told apart from an unrelated nearby enemy. An
+                # enemy is "major" (worth holding through lulls, and segmented like a
+                # boss) once it is a flagged boss OR we have been fighting it for at least
+                # MAJOR_ENGAGE_MS — the inferred mini-boss/elite signal, since the catalog
+                # does not flag mini-bosses. Quick trash dies well inside that span.
+                target_code = identity["spawns"].get(event.target_id, {}).get("mobCode")
+                ekey = (self.epoch, event.target_id)
+                if event.actor_id in allowed and target_code and ekey not in self._engaged_major:
+                    if npc_info(target_code).get("isBoss"):
+                        self._engaged_major.add(ekey)
+                    elif ekey not in self._engage_span:
+                        if len(self._engage_span) > 512:   # bound: forget stale trash contacts
+                            self._engage_span.clear()
+                        self._engage_span[ekey] = event.timestamp_ms   # first-contact time
                 # Count the same relevant damage groups as groups(), separately
                 # for every selectable scope. Nearby NPC-only effects must not
                 # force storage rollovers that clear the player's live view.
@@ -327,7 +375,42 @@ class CombatSession:
                     elif sample["kind"] == "hp" and sample["current"] > 0:
                         attempt["dead"].discard(actor)
             key = (self.epoch, sample["entity"])
+            if sample["kind"] == "death":
+                self._engage_span.pop(key, None)   # a dead enemy's engagement span is moot
+            if sample["kind"] == "death" and key in self._engaged_major:
+                # The engaged major enemy died (a kill, not a reset): forget it, and drop
+                # any staged reset so a later full-HP respawn of a new encounter is not
+                # mistaken for this attempt restarting.
+                self._engaged_major.discard(key)
+                self._major_below.discard(key)
+                self._pending_reset = False
+            if sample["kind"] == "hp" and (key in self._engaged_major or key in self._engage_span):
+                # Track an engaged enemy's HP against its max (for not-yet-major contacts
+                # too, so the below-full evidence is ready the moment a sustained
+                # engagement is promoted mid-lull). Dropping below full marks the attempt
+                # live; a *major* enemy climbing back to full confirms a leash/reset, so
+                # start a fresh attempt — the reliable boundary when a wipe's player deaths
+                # are missed out of range, or the party runs back to a no-lockout boss that
+                # healed up. A staged potential reset (local respawn) also confirms here,
+                # never on the respawn alone.
+                maximum = sample.get("max") or identity["spawns"].get(sample["entity"], {}).get("reportedMaxHp")
+                if maximum and sample["current"] < maximum:
+                    self._major_below.add(key)
+                elif maximum and sample["current"] >= maximum:
+                    if key in self._engaged_major and (key in self._major_below or self._pending_reset):
+                        self.manual_split += 1
+                        self.reset_splits += 1
+                        self._engaged_major.discard(key)
+                        self._pending_reset = False
+                    self._major_below.discard(key)
             if sample["kind"] == "hp" and sample["current"] > 0:
+                # A local-player revive after death, mid boss engagement, stages a
+                # potential reset (graveyard release / runback). It commits only when an
+                # engaged boss is next seen at full HP (above); a battle-rez, where the
+                # boss never returns to full, never resets the meter.
+                if (key in self._dead and sample["entity"] == engine.local_player_id
+                        and self._engaged_major):
+                    self._pending_reset = True
                 self._dead.discard(key)
             if sample["kind"] == "death":
                 if key in self._dead:
@@ -343,6 +426,16 @@ class CombatSession:
                     and any(r.run == self.run and isinstance(r.event,DamageEvent) and r.event.target_id == sample["entity"] and r.event.actor_id in self._allowed(r,"party") for r in self.records)):
                 self.runs[self.run]["recorded_final_boss"] = code
                 self.finish_run("configured_final_boss_death", timestamp_ms=sample["timestamp_ms"])
+        # Promote a sustained engagement to "major" by elapsed time since first contact,
+        # not just by a hit span — so a mini-boss crosses the threshold and is held even
+        # when its mechanic pause comes early (the crossing lands during the lull, driven
+        # by the HP packets that keep arriving, or the next idle observe).
+        now_ms = timestamp_ms if timestamp_ms is not None else max((e.timestamp_ms for e in events), default=None)
+        if now_ms is not None and self._engage_span:
+            for ekey, first in list(self._engage_span.items()):
+                if ekey[0] == self.epoch and now_ms - first >= MAJOR_ENGAGE_MS:
+                    self._engaged_major.add(ekey)
+                    self._engage_span.pop(ekey, None)
         # Remove identity contexts when their bounded event history expires.
         if len(self.identities) > 250:
             retained = {record.epoch for record in self.records}
@@ -720,22 +813,42 @@ class CombatSession:
         }
         idle_ms = (time.time() * 1000 - chosen[-1]["last_damage"]) if chosen else None
         summary["idle_ms"] = idle_ms
-        # A boss we are engaged with is still alive while it has taken damage this
-        # encounter and has not died — so a multi-second pause in damage is a mechanic
-        # (shield/phase/forced movement), not the end of the fight. Used below to hold
-        # off "battle over" through those lulls so the overlay never resets mid-boss.
+        # A major fight (boss OR a sustained mini-boss/elite) is still "live" — so a
+        # multi-second pause in damage is a mechanic (shield/phase/forced movement), not
+        # the end — only while BOTH the engaged enemy is still below full HP and at least
+        # one party attacker is alive. Requiring a living attacker is what makes a wipe end
+        # the fight: a gradual wipe holds until the last member dies, then clears;
+        # respawning and re-engaging (which revives the attacker in ``_dead``) makes it
+        # live again. An enemy back at full HP has leashed/reset (dropped from
+        # ``_major_below``), and a dead one is not live. ``_dead`` is cleared on revive, so
+        # membership in it means currently-dead. Used below to hold off "battle over".
         boss_alive = False
         if chosen:
             epoch = chosen[-1]["epoch"]
-            spawns = self.identities[epoch]["spawns"]
+            now_ms = time.time() * 1000
+            attacker_alive = fight_live = False
             for record in chosen[-1]["records"]:
-                target = record.event.target_id
-                code = spawns.get(target, {}).get("mobCode")
-                if (isinstance(record.event, DamageEvent) and code
-                        and npc_info(code).get("isBoss") and (epoch, target) not in self._dead):
-                    boss_alive = True
-                    break
+                event = record.event
+                if not isinstance(event, DamageEvent):
+                    continue
+                allowed = allowed_for(record)
+                if event.actor_id in allowed and (epoch, event.actor_id) not in self._dead:
+                    attacker_alive = True
+                ekey = (epoch, event.target_id)
+                # Major = a flagged boss / already-promoted engagement, OR a contact that
+                # has been engaged >= MAJOR_ENGAGE_MS (covers an early mechanic lull before
+                # the promotion pass runs). Live only while it is still below full HP.
+                major = ekey in self._engaged_major or (
+                    ekey in self._engage_span and now_ms - self._engage_span[ekey] >= MAJOR_ENGAGE_MS)
+                if major and ekey not in self._dead and ekey in self._major_below:
+                    fight_live = True
+            boss_alive = fight_live and attacker_alive
         summary["boss_alive"] = boss_alive
+        # A local respawn mid-engagement staged a reset that the boss returning to full
+        # has not yet confirmed (e.g. a battle-rez, or still running back). Surfaced so
+        # the live view can hint "attempt may be resetting" without clearing anything —
+        # the actual reset only lands when boss_alive turns false.
+        summary["potential_reset"] = self._pending_reset
         # Reset-after-battle: once combat has been idle past the delay, signal that
         # the fight is over so the live view can clear to a ready state. The data is
         # unchanged — a selected segment or the whole-session view still shows it. While
