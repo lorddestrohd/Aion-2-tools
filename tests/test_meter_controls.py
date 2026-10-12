@@ -156,6 +156,9 @@ def test_enemy_hp_shown_as_percentage_not_raw_numbers():
     assert "Game internal HP " in OVERLAY_JS
     # The raw current/max is no longer printed inline next to the percentage.
     assert "%${target.current_hp" not in OVERLAY_JS
+    # Hover shows the effective HP in damage units = total recorded damage to the target.
+    assert "Effective HP so far" in OVERLAY_JS
+    assert "kfmt(target.damage)" in OVERLAY_JS
 
 
 def test_capture_toggle_ignores_clicks_not_begun_on_the_button():

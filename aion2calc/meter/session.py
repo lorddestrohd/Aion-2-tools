@@ -624,17 +624,27 @@ class CombatSession:
         return chosen
 
     def _latest_hp(self, entity_id, epochs):
-        """The entity's most recent observed current HP and the largest max HP seen,
-        within the shown epochs. Either may be None when HP was never captured."""
-        current, maximum, latest = None, 0, -1
+        """The entity's most recent observed current HP and its max HP, within the
+        shown epochs. Either may be None when HP was never captured.
+
+        Max HP is taken from a sample observed at (or above) full HP — i.e. where
+        current >= max — which is the reliable "real" max the game reports at spawn
+        (this mirrors reference meters, which record max HP only when currentHp >=
+        maxHp). Only when the entity was never seen at full (e.g. we joined the
+        fight mid-pull) does it fall back to the largest max value seen, so a lone
+        mid-fight sample can't inflate the max."""
+        current, maximum, full_max, latest = None, 0, None, -1
         for sample in self.telemetry:
             if sample.get("kind") != "hp" or sample.get("entity") != entity_id or sample.get("epoch") not in epochs:
                 continue
+            cur, mx = sample.get("current"), sample.get("max")
             if sample["timestamp_ms"] >= latest:
-                latest, current = sample["timestamp_ms"], sample.get("current")
-            if sample.get("max"):
-                maximum = max(maximum, sample["max"])
-        return current, (maximum or None)
+                latest, current = sample["timestamp_ms"], cur
+            if mx:
+                maximum = max(maximum, mx)
+                if cur is not None and cur >= mx:
+                    full_max = mx if full_max is None else max(full_max, mx)
+        return current, (full_max or maximum or None)
 
     def _hp_decline_rate(self, entity_id, epochs, window_ms=20000):
         """How fast the entity's observed HP is dropping, in HP per second, measured

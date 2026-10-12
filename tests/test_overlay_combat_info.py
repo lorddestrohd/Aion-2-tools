@@ -217,3 +217,28 @@ def test_death_indicator_clears_when_the_member_recovers():
     s.observe(engine, [_hit(5001, 9001, 2000, 1000), _hit(5002, 9001, 2000, 1000)], timestamp_ms=4000)
     players = {row["name"]: row for row in s.snapshot(scope="auto", segment_id=None)["players"]}
     assert players["Ally"]["dead"] is False   # a later HP>0 sample revives the row
+
+
+def test_latest_hp_prefers_max_observed_at_full_hp():
+    # Max HP is taken from a sample seen at full (current >= max); a later mid-fight
+    # sample carrying a spuriously larger max must NOT inflate the reported max.
+    s = CombatSession()
+    eid = 9001
+    for cur, mx, ts in [(120000, 120000, 1000), (60000, 120000, 2000),
+                        (30000, 999999, 3000), (0, 120000, 4000)]:
+        s.telemetry.append({"kind": "hp", "entity": eid, "current": cur, "max": mx,
+                            "timestamp_ms": ts, "epoch": 0})
+    current, maximum = s._latest_hp(eid, {0})
+    assert current == 0            # most recent sample
+    assert maximum == 120000       # full-HP max, not the spurious 999999
+
+
+def test_latest_hp_falls_back_to_largest_when_never_seen_at_full():
+    # Joined mid-fight (never current >= max): fall back to the largest max seen.
+    s = CombatSession()
+    eid = 9002
+    for cur, mx, ts in [(40000, 120000, 1000), (20000, 120000, 2000)]:
+        s.telemetry.append({"kind": "hp", "entity": eid, "current": cur, "max": mx,
+                            "timestamp_ms": ts, "epoch": 0})
+    _, maximum = s._latest_hp(eid, {0})
+    assert maximum == 120000
