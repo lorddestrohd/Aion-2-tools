@@ -507,6 +507,15 @@ class Runner:
                 boss_report.report_async(doc)
             except Exception:
                 pass
+            # Opt-OUT (on by default), anonymous enemy effective-HP community report.
+            # Posts how much damage each killed enemy took to die so the server can
+            # build a per-build HP consensus; carries nothing identifying, deduped per
+            # kill, best-effort, never blocks or raises here.
+            try:
+                from ..combat import hp_report
+                hp_report.report_async(doc)
+            except Exception:
+                pass
             # Keep the logs folder under the user's cache cap (default 1 GB). A long
             # session writes many rollover parts, so prune the oldest here — throttled
             # so it runs at most ~once/minute — never removing the file just written.
@@ -623,6 +632,21 @@ class Runner:
         self._snap_cache = (key, time.monotonic(), snap)
         return snap
 
+    def _game_build(self) -> str | None:
+        """The game build to key community HP lookups on, matching what the enemy-HP
+        reporter sends (the content patch first). None when no build is detected yet."""
+        meta = self.metadata or {}
+        build = meta.get("game_patch")
+        if not build and self.capture_metadata is not None:
+            try:
+                server_id = (self.packet_engine.local_profile or {}).get("serverId") if self.packet_engine else None
+                detected = self.capture_metadata.snapshot(server_id)
+                build = (detected.get("game_patch") or detected.get("installed_content_build")
+                         or detected.get("installed_build"))
+            except Exception:
+                build = None
+        return build if isinstance(build, str) and build.strip() else None
+
     def status(self, *, follow_latest: bool = False, compact: bool = False) -> dict:
         if not self.lock.acquire(timeout=0.5):
             # The capture thread is mid-burst. Rather than failing (which freezes the
@@ -638,6 +662,16 @@ class Runner:
                     if self.packet_engine is not None else self.meter.snapshot())
             if self.packet_engine is not None:
                 snap["ping"] = self.meter.ping_summary()   # the session snapshot carries no latency
+            # Blend the community effective-HP consensus (confident, per-build, cached
+            # on disk) into the enemy/target HP so it reads in damage units. Pure and
+            # cached — no network here — and best-effort, so it never affects capture.
+            try:
+                from ..combat import hp_db
+                build = self._game_build()
+                hp_db.refresh_async(build)
+                hp_db.enrich(snap, build)
+            except Exception:
+                pass
             if self.packet_engine is not None and not follow_latest:
                 self.enemy_id = snap.get("selected_enemy")
             if compact:

@@ -432,8 +432,15 @@
       // Hover shows the effective HP in damage units — the total recorded damage
       // dealt to this target so far (packet-sourced, exact, and on the same scale
       // as your damage) — alongside the game's raw internal HP for reference.
-      const hpTip=`Effective HP so far ≈ ${kfmt(target.damage)} (total recorded damage dealt to it).`
-        +(target.current_hp!=null?` Game internal HP ${kfmt(target.current_hp)}${target.max_hp?' / '+kfmt(target.max_hp):''} is on a larger, different scale than damage, so it is shown here as a percentage.`:'');
+      // When the community HP database has a confident effective HP for this mob, show
+      // its remaining HP in damage units (accurate packet % x damage-unit maximum),
+      // calibrated from how many kills the community has pooled for this game build.
+      const hpTip=target.effective_max_hp!=null
+        ? `HP ≈ ${kfmt(target.effective_current_hp)} / ${kfmt(target.effective_max_hp)} in damage units`
+          +` — calibrated from ${target.effective_hp_samples||0} community kill${target.effective_hp_samples===1?'':'s'} on this game build.`
+          +` Effective HP dealt so far ≈ ${kfmt(target.damage)}.`
+        : `Effective HP so far ≈ ${kfmt(target.damage)} (total recorded damage dealt to it).`
+          +(target.current_hp!=null?` Game internal HP ${kfmt(target.current_hp)}${target.max_hp?' / '+kfmt(target.max_hp):''} is on a larger, different scale than damage, so it is shown here as a percentage.`:'');
       const hp=showEnemyHp&&target.hp_pct!=null
         ? ` <span class="ovhp" title="${esc(hpTip)}">${Math.round(target.hp_pct*100)}%</span>` : '';
       const ttk=showTtk&&target.ttk!=null&&isFinite(target.ttk)
@@ -476,8 +483,10 @@
     if(showC) $("#ovcontribution").textContent=`Your contribution: ${Math.round((c.share||0)*100)}% · ${kfmt(c.damage)} (${kfmt(c.dps)}/s)`;
     recordGraph(s, snap, players);
     // Show meter only during combat: collapse to the header when idle (the window
-    // then shrinks via fit), so the overlay is unobtrusive between pulls.
-    if(onlyInCombat && (!s.running || snap.paused || over)){
+    // then shrinks via fit), so the overlay is unobtrusive between pulls. A brief
+    // damage pause while an engaged boss is still alive is a mechanic, not the end of
+    // the fight, so keep the meter open through it — never collapse mid-boss.
+    if(onlyInCombat && (!s.running || over || (snap.paused && snap.boss_alive!==true))){
       $("#ovcontent").innerHTML='';
       for(const id of ["#ovmetrics","#ovping","#ovtarget","#ovhpbar","#ovttkbar","#ovcontribution","#ovdummy","#ovidentity","#ovgraph"])$(id).hidden=true;
       $("#ovstatus").textContent=s.running?'Idle · waiting for combat':'Idle';

@@ -1842,6 +1842,8 @@ async function pageSettings() {
       <label><input type="checkbox" id="rec-autoupload" ${ui.meter_auto_upload !== false?'checked':''}> Upload the log to the configured server when you stop the meter or quit the app (on by default)</label>
       <label style="margin-top:4px"><input type="checkbox" id="rec-report-boss" ${ui.meter_report_boss_kills === true?'checked':''}> Report open-world boss kills to the community world-boss feed (off by default)</label>
       <p class="small muted" style="margin:2px 0 6px 14px">Anonymous and opt-in: sends only the boss, server and kill time (no account, character, log or IP). Two different installs must report the same kill before it shows, so the public world-boss availability feed stays corroborated.</p>
+      <label style="margin-top:4px"><input type="checkbox" id="rec-report-enemy-hp" ${ui.meter_report_enemy_hp !== false?'checked':''}> Share enemy HP data to improve everyone's HP bars (on by default)</label>
+      <p class="small muted" style="margin:2px 0 6px 14px">Anonymous and opt-out: when an enemy dies, sends only how much damage it took to die, its NPC id and the game build (no account, character, log or IP). The server pools these across players — including party kills — to learn each enemy's real HP so the meter can show an accurate HP %. The more players share, the better the bars for all.</p>
       <label style="margin-top:4px"><input type="checkbox" id="rec-dummy" ${ui.meter_show_dummy_parse !== false?'checked':''}> Show a training-dummy parse readout when hitting a dummy</label>
       <div class="row"><label>Training-dummy parse window <input type="number" id="rec-dummy-secs" min="5" max="3600" value="${Number(ui.meter_dummy_record_seconds)||60}" style="width:70px"> s</label></div>
       <p class="small muted">Applies to the live meter and overlay. A cleared battle's details stay available in the segment list until replaced.</p></div></div>
@@ -2155,6 +2157,7 @@ async function pageSettings() {
   $("#rec-autostart").onchange = () => api("/api/ui", { meter_autostart: $("#rec-autostart").checked }).then(() => toast("Saved · applies on next launch"));
   $("#rec-autoupload").onchange = () => api("/api/ui", { meter_auto_upload: $("#rec-autoupload").checked }).then(() => toast("Saved"));
   $("#rec-report-boss").onchange = () => api("/api/ui", { meter_report_boss_kills: $("#rec-report-boss").checked }).then(() => toast("Saved"));
+  $("#rec-report-enemy-hp").onchange = () => api("/api/ui", { meter_report_enemy_hp: $("#rec-report-enemy-hp").checked }).then(() => toast("Saved"));
   $("#rec-dummy").onchange = () => api("/api/ui", { meter_show_dummy_parse: $("#rec-dummy").checked }).then(() => toast("Saved"));
   $("#rec-dummy-secs").onchange = () => saveRecNum("rec-dummy-secs", "meter_dummy_record_seconds", 5, 3600);
   $("#settings-export").onclick = async () => {

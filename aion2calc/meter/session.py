@@ -720,11 +720,31 @@ class CombatSession:
         }
         idle_ms = (time.time() * 1000 - chosen[-1]["last_damage"]) if chosen else None
         summary["idle_ms"] = idle_ms
+        # A boss we are engaged with is still alive while it has taken damage this
+        # encounter and has not died — so a multi-second pause in damage is a mechanic
+        # (shield/phase/forced movement), not the end of the fight. Used below to hold
+        # off "battle over" through those lulls so the overlay never resets mid-boss.
+        boss_alive = False
+        if chosen:
+            epoch = chosen[-1]["epoch"]
+            spawns = self.identities[epoch]["spawns"]
+            for record in chosen[-1]["records"]:
+                target = record.event.target_id
+                code = spawns.get(target, {}).get("mobCode")
+                if (isinstance(record.event, DamageEvent) and code
+                        and npc_info(code).get("isBoss") and (epoch, target) not in self._dead):
+                    boss_alive = True
+                    break
+        summary["boss_alive"] = boss_alive
         # Reset-after-battle: once combat has been idle past the delay, signal that
         # the fight is over so the live view can clear to a ready state. The data is
-        # unchanged — a selected segment or the whole-session view still shows it.
+        # unchanged — a selected segment or the whole-session view still shows it. While
+        # an engaged boss is still alive we hold this off until the pull is genuinely
+        # abandoned (idle past the pull-gap), so a boss mechanic that halts damage for a
+        # few seconds never clears or hides the overlay mid-fight.
         summary["battle_over"] = bool(self.reset_after_battle and segment_id is None
-                                      and idle_ms is not None and idle_ms >= self.reset_delay_seconds * 1000)
+                                      and idle_ms is not None and idle_ms >= self.reset_delay_seconds * 1000
+                                      and (not boss_alive or idle_ms >= self.gap_seconds * 1000))
         summary["paused"] = bool(chosen and time.time() * 1000 - chosen[-1]["last_damage"] >= 2000)
         summary["recorded_pvp"] = bool(chosen and chosen[-1]["pvp"])
         summary["dps_clock"] = "Shared one-second buckets with outgoing player damage; idle buckets are excluded; deaths do not reset players"

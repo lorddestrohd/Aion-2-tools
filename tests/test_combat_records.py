@@ -49,6 +49,45 @@ def test_battle_not_over_within_the_delay_or_when_disabled():
     assert s.snapshot(scope="auto", segment_id=None)["battle_over"] is False   # disabled entirely
 
 
+def test_battle_not_over_while_an_engaged_boss_is_still_alive(monkeypatch):
+    # A boss mechanic that halts damage for several seconds must not clear the overlay:
+    # while an engaged boss is alive, the fight is not over past the reset delay.
+    import aion2calc.meter.session as session
+    monkeypatch.setattr(session, "npc_info", lambda code: {"isBoss": code == 777})
+    s, engine = _session()
+    engine.spawn_info = {9001: {"mobCode": 777}}       # target 9001 is a boss
+    s.reset_after_battle = True
+    s.reset_delay_seconds = 5
+    now = int(time.time() * 1000)
+    s.observe(engine, [_hit(5001, 9001, now - 12000, 500), _hit(5001, 9001, now - 10000, 500)], timestamp_ms=now - 10000)
+    snap = s.snapshot(scope="auto", segment_id=None)
+    assert snap["boss_alive"] is True
+    assert snap["battle_over"] is False                # 10s idle > 5s delay, but the boss lives
+
+    # Once that boss dies, the lull does end the fight after the delay.
+    s._dead.add((s.epoch, 9001))
+    after = s.snapshot(scope="auto", segment_id=None)
+    assert after["boss_alive"] is False
+    assert after["battle_over"] is True
+
+
+def test_boss_fight_ends_when_truly_abandoned(monkeypatch):
+    # A pull left for longer than the pull-gap is genuinely over even if the boss
+    # never died (gave up / walked away), so the view is allowed to clear.
+    import aion2calc.meter.session as session
+    monkeypatch.setattr(session, "npc_info", lambda code: {"isBoss": code == 777})
+    s, engine = _session()
+    engine.spawn_info = {9001: {"mobCode": 777}}
+    s.reset_after_battle = True
+    s.reset_delay_seconds = 5
+    s.gap_seconds = 120
+    now = int(time.time() * 1000)
+    s.observe(engine, [_hit(5001, 9001, now - 130000, 500)], timestamp_ms=now - 130000)
+    snap = s.snapshot(scope="auto", segment_id=None)
+    assert snap["boss_alive"] is True                  # never recorded as dead
+    assert snap["battle_over"] is True                 # but 130s idle > 120s pull-gap
+
+
 def test_save_records_flag_follows_the_setting(tmp_path, monkeypatch):
     monkeypatch.setenv("AION2CALC_HOME", str(tmp_path))
     from aion2calc.paths import write_user_json
