@@ -160,7 +160,20 @@
     captureBtn.disabled=finalizing;
     captureBtn.title=running?"Stop capturing combat (same as Stop in the app)":"Start capturing combat (same as Start in the app)";
   }
-  if(captureBtn)captureBtn.onclick=async()=>{
+  // Only toggle capture when the click genuinely began on the Start/Stop button.
+  // Dragging the opacity slider (or any control) can shift the frameless overlay
+  // under a stationary cursor, so the browser's synthesized mouse click can land
+  // on Start/Stop and stop the meter. Requiring the pointerdown to have happened
+  // on the button blocks that, while keyboard activation (click detail 0) still
+  // works.
+  let capturePressed=false;
+  if(captureBtn){
+    captureBtn.addEventListener("pointerdown",()=>{capturePressed=true;});
+    window.addEventListener("pointerup",()=>{setTimeout(()=>{capturePressed=false;},0);},true);
+  }
+  if(captureBtn)captureBtn.onclick=async(ev)=>{
+    if(ev&&ev.detail!==0&&!capturePressed)return;   // a mouse click that didn't start on this button (e.g. the overlay moved under the cursor)
+    capturePressed=false;
     const running=!!(lastSnap&&lastSnap.running);
     let scope="party"; try{const v=localStorage.getItem("meter-scope");if(["auto","party","self","all"].includes(v))scope=v;}catch(_){}
     // from_overlay: Stop pressed here must never close the overlay out from under

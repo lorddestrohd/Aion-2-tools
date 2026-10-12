@@ -148,6 +148,15 @@ def test_click_through_toggle_is_wired_in_settings_and_overlay():
     assert "devicePixelRatio" in OVERLAY_JS
 
 
+def test_capture_toggle_ignores_clicks_not_begun_on_the_button():
+    # Dragging the opacity slider can shift the frameless overlay under the cursor,
+    # so a synthesized mouse click can land on Start/Stop and stop the meter. The
+    # toggle must require the pointerdown to have happened on the button (keyboard
+    # activation, click detail 0, still allowed).
+    assert "capturePressed" in OVERLAY_JS
+    assert "ev.detail!==0&&!capturePressed" in OVERLAY_JS
+
+
 def test_stop_keeps_the_overlay_open_by_default(home, monkeypatch):
     # Stopping the meter must NOT close the overlay unless the user opted in, and an
     # overlay-initiated stop (from_overlay) must never close it regardless.
