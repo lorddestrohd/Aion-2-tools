@@ -429,8 +429,13 @@
       // ~16-19x), so printing it next to your damage invites a comparison that can
       // never line up. The exact percentage (and the bar below) are trustworthy;
       // the raw internal values stay available on hover, clearly labelled.
+      // Hover shows the effective HP in damage units — the total recorded damage
+      // dealt to this target so far (packet-sourced, exact, and on the same scale
+      // as your damage) — alongside the game's raw internal HP for reference.
+      const hpTip=`Effective HP so far ≈ ${kfmt(target.damage)} (total recorded damage dealt to it).`
+        +(target.current_hp!=null?` Game internal HP ${kfmt(target.current_hp)}${target.max_hp?' / '+kfmt(target.max_hp):''} is on a larger, different scale than damage, so it is shown here as a percentage.`:'');
       const hp=showEnemyHp&&target.hp_pct!=null
-        ? ` <span class="ovhp"${target.current_hp!=null?` title="Game internal HP ${kfmt(target.current_hp)}${target.max_hp?' / '+kfmt(target.max_hp):''} — a different, larger scale than damage numbers, so it is shown here as a percentage"`:''}>${Math.round(target.hp_pct*100)}%</span>` : '';
+        ? ` <span class="ovhp" title="${esc(hpTip)}">${Math.round(target.hp_pct*100)}%</span>` : '';
       const ttk=showTtk&&target.ttk!=null&&isFinite(target.ttk)
         ? ` <span class="ovttk">TTK ${fmtTtk(target.ttk)}</span>` : '';
       // When several enemies are being struck in the same instant (AOE/cleave), the

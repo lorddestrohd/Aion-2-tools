@@ -1,3 +1,8 @@
+## Enemy HP: effective-HP on hover + sturdier max-HP capture (0.2.216)
+
+- **Hover the target's HP% to see its effective HP in damage terms** — the total recorded damage dealt to it so far (packet-sourced and exact, on the same scale as your damage), alongside the game's raw internal HP for reference. For a completed kill this is the real "HP ≈ damage to kill it."
+- **Sturdier max-HP capture.** The target's max HP is now taken from a sample observed at full HP (current ≥ max) — the reliable value the game reports at spawn — mirroring reference meters. Only when you joined a fight mid-pull (never saw it at full) does it fall back to the largest value seen, so a stray mid-fight sample can't inflate the max.
+
 ## Enemy HP shown as a percentage, not a mismatched raw number (0.2.215)
 
 - **Fixed the confusing "enemy HP doesn't match my damage" readout.** Investigated with two diagnostic captures plus the game's own combat-analysis screen: the game killed a mob with **6,420 damage** that the packets report as **119.70K HP** — enemy HP is carried on a **~16–19× larger internal scale than damage**, so printing it next to your damage (e.g. `0 / 810K`) could never line up. Our damage numbers are correct (they match the game's own meter); the raw HP value just isn't comparable to them.
