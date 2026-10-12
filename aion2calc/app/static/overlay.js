@@ -14,7 +14,15 @@
   let showGraph=false;
   let graphHist=[], graphDur=-1;   // per-poll party-total samples for the live DPS/HPS sparkline, and the last seen fight duration
   const playerHist=new Map();      // per-player DPS samples (key -> [dps,…]) for the expanded-row trend sparkline
-  let maxPlayers=8, onlyInCombat=false, autoExpand=false, nameMode="name", classColorNames=false, classSwatch=false, rankNumbers=false, highlightMe=false, showCommunityRank=false;
+  let maxPlayers=8, onlyInCombat=false, autoExpand=false, nameMode="name", classColorNames=false, classSwatch=false, rankNumbers=false, highlightMe=false, showCommunityRank=false, showEvents=true;
+  // Regional event-notification strip: next rift/Shugo/battlefield/field-boss windows
+  // from the bundled schedule, for the region the player picked on the Timers page.
+  let eventCatalog=null, eventTimer=null;
+  const EVENT_LEAD_MS=15*60000;   // notify when an event is within 15 minutes
+  // Optional chime when a new event enters the strip. Off by default; a built-in
+  // WebAudio chime unless the user uploaded a custom sound (served at /overlay-event-sound).
+  let eventsSound=false, eventsSoundCustom=false, eventsPrimed=false, actx=null;
+  const announcedEvents=new Set();
   let copyText="";   // plain-text leaderboard of the current view, for the Copy button
   const expanded=new Set();   // row keys whose per-skill breakdown is expanded (DPS view)
   let interpolate=false, interpolateMs=100, showFps=false, locked=false, userWidth=null, userHeight=null;
@@ -124,6 +132,10 @@
     showDummy=ui.meter_show_dummy_parse!==false;
     showCombatPower=ui.overlay_show_combat_power!==false;
     showCommunityRank=ui.overlay_show_community_rank===true;
+    showEvents=ui.overlay_show_events!==false;   // on by default
+    eventsSound=ui.overlay_events_sound===true;  // chime off by default (opt-in audio)
+    eventsSoundCustom=ui.overlay_events_sound_set===true;
+    setupEvents();
     nameMode=["name","class_number","number"].includes(ui.overlay_name_mode)?ui.overlay_name_mode:"name";
     interpolate=ui.overlay_dps_interpolate===true;
     interpolateMs=clampInt(ui.overlay_interpolate_ms,50,1000,50);
@@ -665,6 +677,12 @@
   attachResize($("#ovresize-b"),false,true);
   attachResize($("#ovresize-c"),true,true);
 
+  // Unlock WebAudio on the first interaction so the event chime can sound (browser
+  // autoplay policy blocks audio until a user gesture).
+  document.addEventListener("pointerdown",()=>{
+    try{const Ctx=window.AudioContext||window.webkitAudioContext;if(Ctx){actx=actx||new Ctx();if(actx.state==="suspended")actx.resume().catch(()=>{});}}catch(_){}
+  },{once:true});
+
   // Screenshot & lock: freeze the display and keep the overlay pinned (even when
   // the game loses focus) so it can be captured; a second click resumes.
   const lockBtn=$("#ovlock");
@@ -676,6 +694,74 @@
     nativeCall("set_locked",locked);
     if(!locked)pollMeter();
   };
+
+  // Regional event notifications (on by default): a compact strip of the next
+  // rift / Shugo / battlefield / field-boss windows from the bundled schedule, for
+  // the region the player picked on the Timers page (same-origin localStorage). A
+  // scheduled window is a community forecast, never live status — labelled as such.
+  // The built-in chime (a short two-note rise) or, when the user uploaded one, their
+  // own sound. Best-effort: browser autoplay policy may mute it until a click, and
+  // any failure is swallowed so a missing/!blocked sound never disrupts the overlay.
+  function playEventSound(){
+    if(eventsSoundCustom){
+      try{ const a=new Audio("/overlay-event-sound?v="+Date.now()); a.volume=0.6; a.play().catch(()=>{}); }catch(_){}
+      return;
+    }
+    try{
+      const Ctx=window.AudioContext||window.webkitAudioContext; if(!Ctx)return;
+      actx=actx||new Ctx(); if(actx.state==="suspended")actx.resume().catch(()=>{});
+      const t0=actx.currentTime;
+      [[784,0],[1046.5,0.13]].forEach(([f,dt])=>{   // G5 → C6, ~0.5s total
+        const o=actx.createOscillator(), g=actx.createGain();
+        o.type="sine"; o.frequency.value=f;
+        g.gain.setValueAtTime(0.0001,t0+dt);
+        g.gain.exponentialRampToValueAtTime(0.22,t0+dt+0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001,t0+dt+0.33);
+        o.connect(g); g.connect(actx.destination); o.start(t0+dt); o.stop(t0+dt+0.36);
+      });
+    }catch(_){}
+  }
+  function renderEvents(){
+    const box=$("#ovevents");
+    if(!box)return;
+    if(!showEvents||!eventCatalog||!window.A2EventSchedule){box.hidden=true;eventsPrimed=false;announcedEvents.clear();return;}
+    const {region,group}=A2EventSchedule.savedRegion();
+    if(!region){box.hidden=true;eventsPrimed=false;announcedEvents.clear();return;}   // no region chosen on the Timers page yet
+    const now=Date.now();
+    const list=A2EventSchedule.upcoming(eventCatalog,region,group,now)
+      .filter(e=>e.active||(e.startsInMs!=null&&e.startsInMs<=EVENT_LEAD_MS))
+      .slice(0,3);
+    // Chime once when a new event (or a new phase of one) enters the strip. The first
+    // populate primes silently so we don't blast on launch for an already-open window.
+    const keys=new Set(list.map(e=>e.id+":"+(e.active?"active":"soon")));
+    if(!eventsPrimed){announcedEvents.clear();keys.forEach(k=>announcedEvents.add(k));eventsPrimed=true;}
+    else{
+      let fresh=false;
+      keys.forEach(k=>{if(!announcedEvents.has(k)){fresh=true;announcedEvents.add(k);}});
+      [...announcedEvents].forEach(k=>{if(!keys.has(k))announcedEvents.delete(k);});   // let a recurrence re-chime
+      if(fresh&&eventsSound)playEventSound();
+    }
+    if(!list.length){box.hidden=true;return;}
+    box.hidden=false;
+    box.innerHTML=`<span class="ovelabel">Events</span> `+list.map(e=>{
+      const when=e.active
+        ? (e.entryOpen&&e.endsAt?`entry ${A2EventSchedule.shortCountdown(e.endsAt-now)}`:(e.endsAt?`ends ${A2EventSchedule.shortCountdown(e.endsAt-now)}`:'now'))
+        : `in ${A2EventSchedule.shortCountdown(e.startsInMs)}`;
+      const tip=`${e.name} — community forecast (${e.zone}), not live status${e.disputed?'; conflicting community reports, confirm in game':''}`;
+      return `<span class="ovevent${e.active?' on':''}" title="${esc(tip)}">${esc(e.name)} <b>${when}</b></span>`;
+    }).join(" · ");
+  }
+  function setupEvents(){
+    if(!showEvents){ if(eventTimer){clearInterval(eventTimer);eventTimer=null;} const b=$("#ovevents"); if(b)b.hidden=true; return; }
+    if(!eventCatalog&&window.A2EventSchedule){
+      fetch("/static/event-schedules.json",{cache:"no-store"})
+        .then(r=>r.ok?r.json():null)
+        .then(d=>{ if(d&&d.version===1){eventCatalog=d;renderEvents();} })
+        .catch(()=>{});   // the strip is best-effort; stay silent if the schedule can't load
+    }
+    if(!eventTimer)eventTimer=setInterval(renderEvents,1000);
+    renderEvents();
+  }
 
   // Live-ticking DPS: between polls, recompute each row's real average rate with
   // the elapsing clock (amount / (elapsed + time-since-poll)) so the number keeps
