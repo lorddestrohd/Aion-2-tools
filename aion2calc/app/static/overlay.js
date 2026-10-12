@@ -163,7 +163,9 @@
   if(captureBtn)captureBtn.onclick=async()=>{
     const running=!!(lastSnap&&lastSnap.running);
     let scope="party"; try{const v=localStorage.getItem("meter-scope");if(["auto","party","self","all"].includes(v))scope=v;}catch(_){}
-    const body=running?{action:"stop"}:{action:"start",source:"a2tools",auto_port:true,scope};
+    // from_overlay: Stop pressed here must never close the overlay out from under
+    // the cursor, regardless of the "close overlay when the meter stops" setting.
+    const body=running?{action:"stop",from_overlay:true}:{action:"start",source:"a2tools",auto_port:true,scope};
     captureBtn._busy=true; captureBtn.disabled=true; captureBtn.textContent=running?"Stopping…":"Starting…";
     try{
       const r=await fetch("/api/meter",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});

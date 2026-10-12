@@ -58,7 +58,8 @@ def test_overlay_has_a_start_stop_button():
     assert 'id="ovcapture"' in OVERLAY_HTML
     assert '#ovcapture' in OVERLAY_JS
     # Toggles on running state and posts the same start/stop actions as the app.
-    assert '{action:"stop"}' in OVERLAY_JS
+    # Stop from the overlay flags from_overlay so it never closes the overlay itself.
+    assert 'action:"stop",from_overlay:true' in OVERLAY_JS
     assert 'action:"start"' in OVERLAY_JS
     assert "syncCapture" in OVERLAY_JS
 
@@ -122,6 +123,7 @@ def test_profile_share_code_strips_the_background_image():
 
 
 OVERLAY_PY = (pathlib.Path(__file__).resolve().parents[1] / "aion2calc" / "overlay.py").read_text(encoding="utf-8")
+SERVER_PY = (pathlib.Path(__file__).resolve().parents[1] / "aion2calc" / "app" / "server.py").read_text(encoding="utf-8")
 
 
 def test_click_through_setting_defaults_off_and_backs_up(home):
@@ -144,6 +146,26 @@ def test_click_through_toggle_is_wired_in_settings_and_overlay():
     assert "set_interactive_rects" in OVERLAY_JS
     assert "reportInteractiveRects" in OVERLAY_JS
     assert "devicePixelRatio" in OVERLAY_JS
+
+
+def test_stop_keeps_the_overlay_open_by_default(home, monkeypatch):
+    # Stopping the meter must NOT close the overlay unless the user opted in, and an
+    # overlay-initiated stop (from_overlay) must never close it regardless.
+    closes = {"n": 0}
+    monkeypatch.setattr("aion2calc.app.overlay_launch.close", lambda: closes.__setitem__("n", closes["n"] + 1), raising=False)
+    # Default: the flag is off.
+    assert server.ui_settings()["overlay_close_on_stop"] is False
+    # Backs up like the other overlay toggles.
+    assert settings_backup.import_settings({"overlay_close_on_stop": True})["settings"]["overlay_close_on_stop"] is True
+    with pytest.raises(ValueError):
+        settings_backup.import_settings({"overlay_close_on_stop": "nope"})
+
+
+def test_close_on_stop_toggle_is_wired_in_settings():
+    assert 'id="ov-close-on-stop"' in APP_JS
+    assert "overlay_close_on_stop" in APP_JS
+    # Server only closes the overlay on stop when opted in AND the stop wasn't from the overlay.
+    assert 'ui_settings().get("overlay_close_on_stop") and not body.get("from_overlay")' in SERVER_PY
 
 
 def test_click_through_native_hit_test_present():

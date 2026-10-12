@@ -1,3 +1,9 @@
+## Stopping the meter no longer hides the overlay (0.2.212)
+
+- **The overlay now stays open when you stop the meter.** Previously, pressing Stop — including the overlay's own Stop button — closed the transparent overlay, which was jarring (the overlay you just clicked vanished). Now stopping leaves the overlay up showing the last fight's numbers, with its Start button ready to go again.
+- **The overlay's own Stop button never closes the overlay**, regardless of the setting below.
+- **New setting** (Settings → Overlay, **off by default**): "Close the overlay when I stop the meter" — turn it on to restore the old behaviour where stopping from the app also closes the overlay. Rides the settings backup.
+
 ## Click through the overlay (0.2.211)
 
 - **New "Click through the overlay" toggle** (Settings → Overlay layout, **off by default**, Windows). When on, the mouse **passes through the overlay to the game** so the always-on-top meter never intercepts a click — handy for streamers and in raids. It applies to an open overlay within ~10 seconds and rides the settings backup.

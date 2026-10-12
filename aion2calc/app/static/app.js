@@ -1798,6 +1798,7 @@ async function pageSettings() {
       <p class="small muted">Once a day the app tells the configured log server that a meter ran, so the community can see how many are active. It sends only an anonymous token that rotates every day (it can't be traced to you or linked across days), the date, and the app version — never your name, character, server, IP or any combat data. Uncheck to opt out.</p></div></div>
     <div class="setrow" data-g="overlay"><div class="lbl">Live meter overlay</div><div><label><input type="checkbox" id="ov-open-on-app" ${ui.overlay_open_on_app_start !== false?'checked':''}> Open the overlay when the app starts (on by default)</label><p class="small muted">The overlay opens with the app and waits for the game; it still follows the AION 2 window when that appears.</p>
       <label><input type="checkbox" id="ov-on-start" ${ui.overlay_on_start !== false?'checked':''}> Show overlay when starting the live meter</label><p class="small muted">Also available beside Start on the Live Meter page.</p>
+      <label><input type="checkbox" id="ov-close-on-stop" ${ui.overlay_close_on_stop === true?'checked':''}> Close the overlay when I stop the meter (off by default — the overlay stays up showing the last fight, and its own Stop button never closes it)</label>
       <label><input type="checkbox" id="ov-contribution" ${ui.overlay_show_contribution !== false?'checked':''}> Show your contribution (your share of the encounter's damage)</label>
       <label><input type="checkbox" id="ov-target" ${ui.overlay_show_target !== false?'checked':''}> Show the current target and each player's DPS to it</label>
       <label><input type="checkbox" id="ov-deaths" ${ui.overlay_show_deaths !== false?'checked':''}> Mark party members who are dead (row shows DEAD until they recover)</label>
@@ -2065,6 +2066,7 @@ async function pageSettings() {
     catch(e) { control.checked=!selected; toast('Could not save overlay preference: '+e.message); }
   };
   $('#ov-open-on-app').onchange = () => api('/api/ui', { overlay_open_on_app_start: $('#ov-open-on-app').checked }).then(() => toast('Saved · applies on next launch'));
+  $('#ov-close-on-stop').onchange = () => api('/api/ui', { overlay_close_on_stop: $('#ov-close-on-stop').checked }).then(() => toast('Saved'));
   $('#ov-stream-copy').onclick = () => { const u=$('#ov-stream-url'); u.select?.(); copyText(u.value); const m=$('#ov-stream-msg'); if(m){m.textContent='Copied — paste into an OBS Browser Source.';setTimeout(()=>{if(m.isConnected)m.textContent='';},2000);} };
   $("#appwin").onchange = () => api("/api/ui", { app_window: $("#appwin").checked }).then(() => toast("Saved"));
   $("#community-heartbeat").onchange = () => api("/api/ui", { community_heartbeat: $("#community-heartbeat").checked }).then(() => toast("Saved"));
