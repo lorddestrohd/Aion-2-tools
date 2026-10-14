@@ -38,6 +38,31 @@ MAJOR_ENGAGE_MS = 12_000
 #: damage (party dead, or ran out of range) well beyond this; a battle-rez, where others
 #: keep hitting, never pauses it. Tunable.
 RESET_LULL_MS = 26_000
+#: In the live view with "combine pets with owner" OFF, a summon/pet that has not dealt or
+#: taken an action for at least this long is treated as de-spawned and its damage rolls into
+#: its owner's row, while the owner's still-active pets keep their own rows. Without this, a
+#: class that cycles many short-lived summons (a Spiritmaster's spirits) leaves a long tail
+#: of tiny dead-pet rows that push off the overlay's row cap, so that damage vanishes from
+#: view. Pets attack frequently, so an idle gap this long reliably means the summon is gone.
+PET_DESPAWN_IDLE_MS = 8_000
+
+
+def _summon_label(skill_id: int) -> str:
+    # "Summon: Fire Spirit" -> "Fire Spirit": the summoned entity carries the bare name.
+    return skill_name(skill_id).split(": ", 1)[-1]
+
+
+#: The Spiritmaster (class 16) keeps a single "basic" elemental spirit out at a time: summoning
+#: a new one replaces the one before it. So in the live view a basic spirit that a newer one has
+#: replaced should fold into its owner the moment the successor appears, rather than lingering as
+#: a stale row until PET_DESPAWN_IDLE_MS elapses — the spirits cycle far faster than that idle
+#: window, so without this several dead basic-spirit rows pile up at once. Ancient Spirit (a
+#: stigma summon) can be out alongside a basic spirit, so it is exempt from this one-at-a-time
+#: replacement and only the idle rule applies to it. Names are taken from the summon skills so
+#: they track the shipped game data; on a client whose locale these names don't match, the
+#: replacement rule simply doesn't fire and the idle rule still covers de-spawns.
+BASIC_SPIRIT_NAMES = frozenset(_summon_label(s) for s in (16100000, 16110000, 16120000, 16130000))
+ANCIENT_SPIRIT_NAME = _summon_label(16250000)
 
 
 class NoIdentifiedPlayerData(ValueError):
@@ -754,6 +779,42 @@ class CombatSession:
                        and record.event.actor_id in allowed_for(record)
                        and record.event.target_id not in allowed_for(record)}
             durations += max(1,len(buckets))
+        # Latest activity per actor and overall, so the live view can fold a summon that has
+        # gone quiet (de-spawned) into its owner when pets are shown separately. "Now" is the
+        # newest event in view; a pet idle PET_DESPAWN_IDLE_MS past it reads as gone. First-seen
+        # time per actor (first_act) orders a Spiritmaster's basic spirits so a replaced one folds
+        # in as soon as its successor appears — see replaced_basic below.
+        now_ms, last_act, first_act = 0, {}, {}
+        basic_by_owner = {}
+        for group in groups:
+            owners = self.identities[group["epoch"]]["owners"]
+            for record in group["records"]:
+                ts, actor = record.event.timestamp_ms, record.event.actor_id
+                if ts > now_ms:
+                    now_ms = ts
+                if ts > last_act.get(actor, 0):
+                    last_act[actor] = ts
+                if ts < first_act.get(actor, ts + 1):
+                    first_act[actor] = ts
+                if actor in owners and self.name(group["epoch"], actor) in BASIC_SPIRIT_NAMES:
+                    seen = set()
+                    owner = actor
+                    while owner in owners and owner not in seen:
+                        seen.add(owner)
+                        owner = owners[owner]
+                    basic_by_owner.setdefault(owner, set()).add(actor)
+        # A Spiritmaster can have only one basic spirit out at a time, so once a newer basic
+        # spirit appears for the same owner, the earlier one is gone — fold it into the owner now
+        # (even if it acted within the idle window) instead of leaving a stale row. Only basic
+        # spirits that first appeared *before* the owner's newest basic spirit are superseded;
+        # the current one keeps its row (and Ancient Spirit, never in this set, is untouched). If
+        # two tie as newest, neither is superseded and the idle rule decides.
+        replaced_basic = set()
+        for owner, spirits in basic_by_owner.items():
+            if len(spirits) < 2:
+                continue
+            newest = max(first_act.get(a, 0) for a in spirits)
+            replaced_basic.update(a for a in spirits if first_act.get(a, 0) < newest)
         timeline = {}
         offset = 0
         for group in groups:
@@ -764,7 +825,16 @@ class CombatSession:
                     # IDs may be reused after a zone/socket change: don't merge
                     # unnamed actors from unrelated contexts into one person.
                     original = actor_id
-                    if combine_pets:
+                    # Collapse a pet into its owner when pets are combined, and — even when
+                    # they are shown separately — once a pet has gone quiet long enough to be
+                    # de-spawned, or (for a Spiritmaster's basic spirit) once a newer basic spirit
+                    # has replaced it, so its damage stays on the owner instead of lingering as a
+                    # dead row that falls off the overlay. The owner's still-active pets (recent
+                    # activity, and the current basic spirit) keep their own rows.
+                    despawned = (original in identity["owners"]
+                                 and now_ms - last_act.get(original, now_ms) >= PET_DESPAWN_IDLE_MS)
+                    superseded = original in replaced_basic
+                    if combine_pets or despawned or superseded:
                         seen = set()
                         while actor_id in identity["owners"] and actor_id not in seen:
                             seen.add(actor_id)
