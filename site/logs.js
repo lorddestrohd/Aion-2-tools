@@ -160,6 +160,9 @@ A2ArchiveUpload.mount(document.getElementById('archive-upload'),{
       const roster = toMembers(lg.players);  // whole-log roster, fallback only
       const uploader = typeof lg.uploader === "string" ? lg.uploader : null;  // server-provided; else anonymous
       for (const c of (lg.contexts || [])) {
+        // Drop generic non-boss combat ("Combat 3", etc.) in PvE only; PvP skirmishes without a
+        // named boss are kept.
+        if ((comm.f.combat_mode || "pve") !== "pvp" && (!c.boss || /^combat\s*\d*$/i.test(String(c.boss).trim()))) continue;
         // Per-encounter participants when the server provides them, so one encounter's party is
         // never shown on another in a multi-encounter log; fall back to the whole-log roster.
         const members = Array.isArray(c.players) && c.players.length ? toMembers(c.players) : roster;
@@ -184,7 +187,7 @@ A2ArchiveUpload.mount(document.getElementById('archive-upload'),{
       <td><span class="party-cell"><b>${n0(r.party)}</b>${r.members.map(classIcon).join("")}</span></td>
       <td class="r num">${secs(r.duration)}</td><td>${esc(r.uploader || "Anonymous")}</td><td class="muted small">${day(r.date)}</td><td class="muted small">${esc(r.patch || "—")}</td>
       <td><a href="log.html?id=${encodeURIComponent(r.id)}">view</a></td></tr>`).join("");
-    table.innerHTML = `<table class="t"><tr><th>Boss</th><th>Difficulty</th><th>Party</th><th class="r">Time</th><th>Uploaded by</th><th>Date</th><th>Product</th><th></th></tr>${tr}</table>`;
+    table.innerHTML = `<table class="t"><tr><th>${comm.f.combat_mode === "pvp" ? "Skirmish" : "Boss"}</th><th>Difficulty</th><th>Party</th><th class="r">Time</th><th>Uploaded by</th><th>Date</th><th>Product</th><th></th></tr>${tr}</table>`;
     const hasNext = comm.buf.length > comm.page * COMM_PER_PAGE || !comm.done;
     if (pager) {
       pager.innerHTML = `<button class="btn small" ${comm.page <= 1 ? "disabled" : ""} id="comm-prev" type="button">← Prev</button>`
@@ -207,8 +210,8 @@ A2ArchiveUpload.mount(document.getElementById('archive-upload'),{
     const encOpts = (f.encounter_type || []).filter((t) => (comm.f.combat_mode === "pvp") === String(t).startsWith("pvp_"));
     root.innerHTML = '<div class="row comm-filters" style="gap:10px;margin-bottom:12px;align-items:flex-end;flex-wrap:wrap">'
       + field("Mode", `<select id="cf-mode"><option value="pve"${comm.f.combat_mode !== "pvp" ? " selected" : ""}>PvE</option><option value="pvp"${comm.f.combat_mode === "pvp" ? " selected" : ""}>PvP</option></select>`)
-      + field("Boss", `<select id="cf-boss" style="min-width:170px">${options(f.boss, comm.f.boss)}</select>`)
-      + field("Difficulty", `<select id="cf-difficulty">${options(f.difficulty, comm.f.difficulty)}</select>`)
+      + (comm.f.combat_mode === "pvp" ? "" : field("Boss", `<select id="cf-boss" style="min-width:170px">${options(f.boss, comm.f.boss)}</select>`))
+      + field("Difficulty", `<select id="cf-difficulty">${options([...(f.difficulty || [])].sort((a, b) => String(a).localeCompare(String(b))), comm.f.difficulty)}</select>`)
       + field("Encounter", `<select id="cf-encounter_type">${options(encOpts, comm.f.encounter_type, prettyEnc)}</select>`)
       + field("Region", `<select id="cf-region">${options(f.region, comm.f.region)}</select>`)
       + field("Product", `<select id="cf-game_patch">${options(f.game_patch, comm.f.game_patch, patchOf)}</select>`)
@@ -217,7 +220,7 @@ A2ArchiveUpload.mount(document.getElementById('archive-upload'),{
       + '</div><div id="comm-table"><div class="empty">Loading…</div></div><div class="row" id="comm-pager" style="gap:8px;margin-top:10px"></div>';
     const change = (id, key) => { const el = root.querySelector("#cf-" + id); if (el) el.onchange = () => { comm.f[key] = el.value || ""; comm.page = 1; commReset(); loadCommunity(); }; };
     for (const [id, key] of [["boss", "boss"], ["difficulty", "difficulty"], ["encounter_type", "encounter_type"], ["region", "region"], ["game_patch", "game_patch"], ["party_size", "party_size"]]) change(id, key);
-    root.querySelector("#cf-mode").onchange = (e) => { comm.f.combat_mode = e.target.value; comm.f.encounter_type = ""; comm.page = 1; commReset(); renderCommunity(); };
+    root.querySelector("#cf-mode").onchange = (e) => { comm.f.combat_mode = e.target.value; comm.f.encounter_type = ""; comm.f.boss = ""; comm.page = 1; commReset(); renderCommunity(); };
     root.querySelector("#cf-clear").onclick = () => { comm.f = { combat_mode: comm.f.combat_mode }; comm.page = 1; commReset(); renderCommunity(); };
     loadCommunity();
   }
