@@ -39,7 +39,7 @@ from .kit.base import ClassData
 from .report import kr_share_overlap
 from .run import kit_module, prepare
 from .scenarios import dummy, typical_build
-from .sim.engine import Sim
+from .sim.engine import Sim, SimConfig
 
 CLASSES = ("gladiator", "templar", "assassin", "ranger", "sorcerer", "spiritmaster", "cleric", "chanter")
 
@@ -270,12 +270,26 @@ def _percentile(values, fraction):
     return values[min(len(values) - 1, int(fraction * len(values)))] if values else None
 
 
+_TYPICAL_SPEED: dict = {}
+
+
+def kit_action_time(seconds: float, cls: str) -> float:
+    """A measured time from a press to the next press as a kit ``TIMING`` value: the simulator's
+    per-action latency taken off, then scaled to 0% Combat Speed at the typical build's Combat Speed
+    (the player's own is not recorded). This is how the 0.2.307 kit timings were derived."""
+    if cls not in _TYPICAL_SPEED:
+        _, _, _, stats = prepare(typical_build(cls), _scenario(cls))
+        _TYPICAL_SPEED[cls] = stats.derived().combat_speed
+    return round(max(0.0, seconds - SimConfig.latency) * (1.0 + _TYPICAL_SPEED[cls]), 2)
+
+
 def recorded_timings(seg: dict, pid: str, cls: str | None) -> list[dict]:
     """Per skill, from the segment's recorded casts (meter 0.2.306 or later): the cooldown the game
     sent (cooldown reduction included) beside the skill table's, the cast lock (cast to cast end;
     recorded for the player who made the recording only), and the time from a press to that
     player's next press, fastest (10th percentile) and typical (median of gaps up to 1.5 s, i.e.
-    while chaining skills). Players cancel animations, so the next press can beat the cast lock."""
+    while chaining skills), with the typical one as a kit ``TIMING`` value (:func:`kit_action_time`).
+    Players cancel animations, so the next press can beat the cast lock."""
     from .combat.actions import pressed
     from .meter.a2parser.lookup import skill_family
     families = defaultdict(list)
@@ -309,13 +323,15 @@ def recorded_timings(seg: dict, pid: str, cls: str | None) -> list[dict]:
         table_cooldown = max((v for v in table.get("cd") or [] if isinstance(v, (int, float))), default=None)
         cooldown = _percentile(cooldowns, 0.5)
         key = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+        typical = _percentile([g for g in following.get(family, []) if g <= 1.5], 0.5)
         rows.append({"skill": name, "skill_id": family, "casts": len(casts),
                      "cooldown_s": cooldown, "table_cooldown_s": table_cooldown or None,
                      "cooldown_reduction_pct": round(100 * (1 - cooldown / table_cooldown), 1) if cooldown and table_cooldown else None,
                      "cast_lock_s": _percentile(locks, 0.5), "next_press_s": _percentile(following.get(family, []), 0.1),
-                     "next_press_median_s": _percentile([g for g in following.get(family, []) if g <= 1.5], 0.5),
+                     "next_press_median_s": typical,
                      "next_press_samples": len([g for g in following.get(family, []) if g <= 1.5]),
-                     "kit_key": key if key in timing else None, "kit_action_s": timing.get(key)})
+                     "kit_key": key if key in timing else None, "kit_action_s": timing.get(key),
+                     "kit_value_s": kit_action_time(typical, cls) if typical is not None and cd else None})
     rows.sort(key=lambda r: -r["casts"])
     return rows
 
@@ -376,17 +392,52 @@ def measured_timings(path_or_ref, *, player=None, segment=None) -> dict:
             kit_timing = {}
     recorded = recorded_timings(seg, pid, cls)
     # Suggest a kit action time only where the evidence is solid: the typical chained next press
-    # from at least ten presses, when it differs from the kit by more than 0.05 s (reported only;
-    # the kits are not modified).
-    suggested = {r["kit_key"]: round(r["next_press_median_s"], 2) for r in recorded
-                 if r["kit_key"] and r["next_press_median_s"] is not None and r["next_press_samples"] >= 10
-                 and abs(r["next_press_median_s"] - r["kit_action_s"]) > 0.05}
+    # from at least ten presses, as a TIMING value, when it differs from the kit by more than 0.05 s
+    # (reported only; the kits are not modified). Basic-attack steps woven between skills and chain
+    # presses a kit folds into another action need the docs' rules, not this per-skill figure.
+    suggested = {r["kit_key"]: r["kit_value_s"] for r in recorded
+                 if r["kit_key"] and r["kit_value_s"] is not None and r["next_press_samples"] >= 10
+                 and abs(r["kit_value_s"] - r["kit_action_s"]) > 0.05}
     return {"class": cls, "player": pid, "segment": idx, "skills": skills, "pets": pet_rows, "kit": kit_timing,
             "recorded": recorded, "suggested_timing": suggested,
             "note": ("Shortest filler cadence bounds its action time; cooldown-skill cadence reflects cooldown. "
                      "Pet swing_period is the median interval between a summon's hits. Recorded casts (0.2.306 "
                      "or later) add the cooldown the game sent, the cast lock and the time to the next press. "
                      "Measured evidence, not an assumption; feed it into the kit's TIMING knobs rather than guessing.")}
+
+
+#: What each credited buff group is, for the check's report.
+BUFF_GROUPS = {"aura": "PvE Damage Boost aura (Undefeated Mantra, Light of Protection)",
+               "block": "PvE Damage Boost on block (Fury, Experienced Counterstrike)",
+               "tolerance": "enemy PvE Damage Tolerance cut (Chain of Torment, Earth's Promise)"}
+
+
+def buff_checks(paths) -> dict:
+    """The buff-contribution estimate's check, pooled across saved logs (files or folders of them):
+    per credited buff group, the measured gain in the same player's same-skill plain hits while only
+    that group was up, against the gain the estimate predicts for those hits
+    (:mod:`aion2calc.combat.contribution`). The estimate stays out of rankings until the two agree."""
+    from pathlib import Path
+    from .combat import a2log as F
+    from .combat.contribution import pool_checks
+    files = []
+    for raw in paths:
+        path = Path(raw)
+        files += sorted(path.glob("*.json")) if path.is_dir() else [path]
+    fights, results = [], []
+    for path in files:
+        try:
+            doc = F.validate(json.loads(path.read_text(encoding="utf-8")))
+        except Exception:
+            continue
+        for row in (doc.get("encounter_insights") or {}).get("segments") or []:
+            result = row.get("contribution")
+            if result and result.get("checks"):
+                segment = doc["segments"][row["segment"]]
+                results.append(result)
+                fights.append({"file": path.name, "segment": row["segment"],
+                               "label": segment.get("boss") or segment.get("label"), "checks": result["checks"]})
+    return {"files": len(files), "fights": fights, "pooled": pool_checks(results)}
 
 
 def from_capture(path_or_ref: str, *, player: str | None = None, segment: int | None = None) -> dict:

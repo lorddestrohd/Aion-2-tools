@@ -168,6 +168,9 @@ def main(argv: list[str] | None = None) -> int:
                                                            "swing periods from the capture and compare to the kit; "
                                                            "recordings from 0.2.306 also give each skill's cooldown, "
                                                            "cast lock and time to the next press")
+    cb.add_argument("--buffs", nargs="+", metavar="LOG", help="check the estimated buff contribution against saved "
+                                                             "logs (files or folders): the measured gain in plain hits "
+                                                             "while each credited buff group was up, against the estimate")
 
     iv2 = sub.add_parser("install-version", help="show each detected game install's version signals and, with "
                                                  "two or more (e.g. Steam and PURPLE), which signal is the shared "
@@ -398,6 +401,22 @@ def main(argv: list[str] | None = None) -> int:
             print(c + ":", "; ".join(learn.summary(learn.fit(c, conn))))
     elif args.cmd == "calibrate":
         from . import calibrate as C
+        if args.buffs:
+            r = C.buff_checks(args.buffs)
+            print(f"buff contribution check: {len(r['fights'])} fights with a comparison in {r['files']} files")
+            print("  measured: the same player's same-skill plain hits (no critical, double, perfect or periodic")
+            print("  damage, outside breaks) with only that buff group up, against none of them up")
+            for f in r["fights"]:
+                print(f"  {f['file'][:40]:40s} #{f['segment']:<3d} {str(f['label'] or '')[:24]:24s} " +
+                      "; ".join(f"{c['group']} {c['measured_pct']:+.1f}% vs {c['estimated_pct']:+.1f}% "
+                                f"({c['hits_on']}/{c['hits_off']} hits)" for c in f["checks"]))
+            for c in r["pooled"]:
+                print(f"\n  {C.BUFF_GROUPS.get(c['group'], c['group'])}")
+                print(f"    {c['fights']} fights, {c['pairs']} player-skill pairs, {c['hits_on']} hits with / "
+                      f"{c['hits_off']} without: measured {c['measured_pct']:+.1f}%, estimated {c['estimated_pct']:+.1f}%")
+            if not r["pooled"]:
+                print("  no fight had enough plain hits both with and without a credited buff to compare")
+            return 0
         if args.capture:
             r = C.from_capture(args.capture, player=args.player)
             vs = r["vs_sim"]
@@ -423,14 +442,15 @@ def main(argv: list[str] | None = None) -> int:
                         print("\n  recorded casts: the cooldown the game sent (skill table, implied cooldown reduction),")
                         print("  the cast lock (your own character only) and the shortest time to the next press:")
                         print(f"    {'skill':24s} {'casts':>5s}  {'cooldown':>22s}  {'cast lock':>9s}  "
-                              f"{'next press fastest/typical':>26s}  {'kit TIMING':>10s}")
+                              f"{'next press fastest/typical':>26s}  {'TIMING kit/measured':>19s}")
                         for r in mt["recorded"][:20]:
                             cool = "—" if r["cooldown_s"] is None else (
                                 f"{r['cooldown_s']:.1f}s" + (f" ({r['table_cooldown_s']:g}s, {r['cooldown_reduction_pct']:.0f}%)"
                                                              if r["table_cooldown_s"] and r["cooldown_reduction_pct"] is not None else ""))
                             press = f"{fmt(r['next_press_s'])} / {fmt(r['next_press_median_s'])}"
+                            timing = f"{fmt(r['kit_action_s'], '')} / {fmt(r['kit_value_s'], '')}"
                             print(f"    {r['skill'][:24]:24s} {r['casts']:5d}  {cool:>22s}  {fmt(r['cast_lock_s']):>9s}  "
-                                  f"{press:>26s}  {fmt(r['kit_action_s'], ''):>10s}")
+                                  f"{press:>26s}  {timing:>19s}")
                         print("  suggested TIMING (reported only; kits are not modified):",
                               json.dumps(mt["suggested_timing"]) if mt["suggested_timing"] else "no change")
                     kit = mt.get("kit") or {}

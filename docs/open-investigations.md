@@ -155,16 +155,17 @@ The eight distinct diagnostic captures with raw TCP recording (10–15 October; 
 | `0e 92` / `1a 92` | target · `01` · effect (u32) / target · effect | **party buff added / removed**; effect = skill variant × 10 + stack | 15 October: 2,058 adds, 2,049 removes, 2,029 paired. Across captures 92–100% of adds follow a cast of the same skill within 1.5 s, by the class that owns it (the Chanter's Mantras and Protection Circle, the Cleric's Light of Regeneration). Durations are fixed per buff: Rage Burst 10.0 s, Ruinous Blow 20.0 s, Lunge Stance 18.5 s, Recuperation 12.0 s. |
 | `2b 38` / `2c 38` | target · `13` · instance (varint) · effect (u32) · duration (u64 ms; all ones = permanent) · time (u64) · source · … · skill (u32) · … · x/y/z (f32) / target · count · (`00` · instance · reason) × count | **effect instance added / removed**, for any entity in range — enemies included | The duration field equals the time to an "expired" (reason 1) removal on three captures. On enemies: Forced Fall 3000 → 3.02 s, Overhead Slam 3000 → 3.06 s, Ice Chain 5000 → 5.00 s, Debilitating Mark 10000 → 10.01 s, Drill Dart 6000 → 6.00 s. On players: Experienced Counterstrike 20000 → 20.05 s, Ambush Stance 10000 → 10.01 s. |
 | `05 e0` | boss · `03` · `01` · maximum (u32) · current (u32) · state | **boss break (stagger) gauge** | 99–100% of the gauge's drops share a read with a hit on that boss, and each skill takes a fixed amount (Rending Blow 2, Overhead Slam 5, Condemnation 7, Debilitating Mark 10, Rage Burst 20, Ruinous Blow 25; some hits 1.5×). Maxima differ by boss: 1200 (Vakron, Gelcos, Nazmun), 750 (the Krao Cave bosses), 317 (Transcendent Bakarma), 240, 150. Near zero the gauge stays down 5.1–6.7 s and refills; party damage in the ten seconds after a break was 1.2–2.1× the ten seconds before. |
-| `09 38` | NPC · … · skill · … · target · … · x/y/z · … | NPC cast at a player | Samples only. |
+| `09 38` | actor · `00` · skill (u32) · sequence · kind (2) · target · facing · position — the `02 38` layout | **an NPC's skill cast** (NPCs send `02 38` too) | 345 in the 15 October capture, every one aimed at a target. A boss's casts carry its named abilities (Nazmun: Ultra Laser, Trap Install, Reaction Speed Test; Transcendent Bakarma: Swipe, Subspace Dominion). Recorded per fight for catalog bosses since 0.2.307. |
 | `2e 37`, `3c 37` | entity · skill · positions and direction | dodge rolls and boss charges; skill-driven leaps and dashes (Leaping Slam, Rushing Smash, Infiltrate) | Samples only. |
 | `1a 37`, `1b 37`, `1c 37`, `2f 37` | entity · x/y/z (f32), with a heading on `2f 37` | position and movement updates for players and NPCs | Samples only; units and map transforms unverified. |
 | `00 36` | u64 | server clock in epoch milliseconds, about every 50 ms | The values track the capture clock. |
-| `00 8d` | entity · subtype · value | `02 01 00` is the decoded HP feed (party members included); `01 01 01` hovers near 2,900 (a resource?); `01 01 03` and `01 01 06` count down by 500 and 750 per update | Probe targets. |
+| `00 8d` | entity · subtype · value (u32) | `02 01 00` is the decoded HP feed (party members included). `01 01 01` is the recording player's **MP**, the only player's the game sends. `01 01 03` and `01 01 06` count down by 500 and 750 per update | MP drops by each MP-costing skill's listed cost: Combustion 120 → a median drop of 119 (18 casts), Curse 80 → 79, Summon: Fire Spirit 150 → 149, Ruinous Blow 250 → 246. It rises by +50 regeneration ticks and with MP-restoring skills. Recorded per fight since 0.2.307. The other two subtypes are probe targets. |
+| `33 36` | the recording player's own record, sent on entering a zone: … `01` · HP · maximum HP (varints, equal on entry) · maximum MP (u32), about 200 bytes in | the recording player's **maximum HP and MP** (the HP feed carries neither for them) | Found in five captures; in the three with HP and MP readings to compare, they matched the player's highest readings (23,467 / 3,077; 22,022 / 3,035; 6,610 / 1,816). Read since 0.2.307. |
 | `4a 36`, `4b 36` | local player · (stat id, value) × n / player · count · (stat id, signed delta) × n | stat lists and signed stat changes | Unverified. |
 
 **Limits.** The 11 October crowd capture (194 players, a busy capture) matched only 35% of hits to a cast: the casts of distant players were missing (a median 9.4 s since that actor's previous cast), so cast coverage holds for the party and nearby players, not for a crowd. Party buffs (`0e 92`) cover party members only; `2b 38` covers everything in range, including effects re-sent as entities come into view.
 
-**What it enables** (the roadmap tracks these): a cast timeline and rotation per player; real cast/lock times and cooldowns for the optimizer's kits and a skill-cooldown overlay; chain usage; buff and debuff uptime with sources; crowd control landed and how long it held; each player's break-gauge contribution and the break windows; dodges and leaps; NPC casts for a boss-ability timeline. **Still undecoded:** resources, shield absorption, interrupts, misses, mitigation, the unit and map transform of positions, and PvP rounds; overheal is computable from the HP feed but not yet checked.
+**What it enables** (the roadmap tracks these): a cast timeline and rotation per player; real cast/lock times and cooldowns for the optimizer's kits and a skill-cooldown overlay; chain usage; buff and debuff uptime with sources; crowd control landed and how long it held; each player's break-gauge contribution and the break windows; dodges and leaps; NPC casts for a boss-ability timeline. **Still undecoded:** shield absorption, interrupts, misses, mitigation, the unit and map transform of positions, and PvP rounds. MP and overheal (of instant heals) were added in 0.2.307 (below).
 
 **Built into 0.2.306, and what building it showed.**
 
@@ -172,6 +173,93 @@ The eight distinct diagnostic captures with raw TCP recording (10–15 October; 
 - **Skill families.** A family zeroes a skill id's last four digits, but the class system actions share the `xx00` family: Dodge (`11000100`) and the Gladiator weapon equip (`11000000`) are different actions. They stay whole.
 - **The listed Stagger Gauge Damage matches the gauge.** For 53 of 55 skills seen alone in a read, the drop equals the "N Stagger Gauge Damage" in the bundled skill description; the review splits a drop shared by several hits by those values.
 - **Cast lock and next press agree.** For the recording player, the time from a cast to its cast end matches the median time to the next press while chaining (Rending Blow 0.34 s against the kit's 0.55 s, Overhead Slam 0.35 s against 0.45 s), so the game sends the cast end as the next action starts. Players cancel animations: the fastest tenth of next presses are shorter still. `calibrate --timings` reports both.
+
+**Measured into the kits' action times (0.2.307).** The full press sequences of the 26 players with 50 or more presses (Templar: one player) gave the kits' `TIMING`. How each value was derived, and what it did to the calibration, is in [the methodology](methodology.md#measured-action-times-02307). What the sequences showed:
+
+- **Basic attacks are woven.** Every class but the Cleric presses one step of its three-step basic-attack chain between two skills and cancels it 0.10–0.16 s later: a skill, not another step, followed 893 of the Gladiators' 1,005 steps and 403 of the Assassins' 504. Pressed back to back, the steps take 0.3–1.2 s each. The weave is 7–13% of a player's active time; dodges take another 8–14%.
+- **Chain steps are separate presses.** Upward Strike, Bursting Blow, Piercing Strike, Tempest Arrow and Discharge each have their own press and time. Smashing Blow follows Rending Blow nearly one for one (627 and 579 presses), as the chain window records say.
+- **Charged skills record the release.** Deadshot and Bolt are recorded when released, about 0.15 s and 0.57 s before the next press; the charge shows as extra time before the press (Deadshot 0.55 s, Bolt 0.90 s).
+- **"Remove cooldown" Overhead Slam is not spammable.** With the spec, Overhead Slams never came less than about 1 s apart (10th percentile 0.97 s, median 1.18 s, 223 intervals). The 0.2.254 estimate was ~0.65 s.
+
+**Effect ids carry the caster's skill level, and the buff contribution's first check (0.2.307).** The estimated buff contribution in the log review ([method](methodology.md#estimated-buff-contribution-02307)) needs each buff's size, which depends on its caster's skill level. The packets carry no level field, but the effect id (skill variant × 10 + a stack digit) varies with it:
+
+- Undefeated Mantra's ids end `11`, `21`, `31` or `41` across 9 Chanters, and Light of Protection's end `11`, `21` or `31` across 8 Clerics. Where the caster's combat power is known (three of them), the higher digit goes with the higher combat power. One Chanter's Undefeated Mantra shows `41` while their Sprint Mantra shows `21`, so it is per skill, not per class or build.
+- Power of the Storm, whose duration grows with its level, ran 12.0 s (level 5) with digit `1`: the digit counts the level thresholds reached (5, 10, 15, 20).
+- Passive effects carry the level itself: Robe of Cold showed `07` with the 3.5 s duration of level 7–8, Experienced Counterstrike `07`, Fury `01`.
+
+The check compares the same player's same-skill plain hits (outside break windows) with only one credited buff group up against none up:
+
+- The party PvE Damage Boost on block (Experienced Counterstrike at level 7) measured +6.7% against +8.5% estimated, over 1,467 hits (Vakron).
+- The auras are open. A Transcendent Bakarma fight agreed (+22% against +17%) on only 33 hits. Four Deus Research Base fights measured +5.5% against +24%, but their 66 unbuffed hits fall in a few short windows of each fight.
+
+`calibrate --buffs` pools more fights. The estimate stays out of rankings until they agree.
+
+**Built into 0.2.307: MP, effective healing and boss casts, and what stays gated.**
+
+- **MP.** The recording player's MP readings (above) are kept per fight. The review shows where MP started and ended, its lowest, MP spent and restored, and the time below a fifth of the maximum. Other players' MP is never sent.
+- **Effective healing and overheal** ([method](methodology.md#effective-healing-and-overheal-02307)).
+  - An instant heal restores at most the HP its target is missing, read from the party HP feed.
+  - Heals over time cannot be measured that way: one record carries the whole amount, and the HP feed rises tick by tick. Light of Regeneration's records of ~6,000 raised HP by ~418 at the next reading, and it was 68% of the recorded healing in the 15 October capture.
+  - Impeding Authority's shield arrives as a heal of the shield's size.
+  - So heals over time and shields are listed apart. For instant heals, 256 reads matched the HP feed in full and 22 matched topped up to the maximum; 168 had damage or other heals' ticks in between.
+- **Boss casts.** Catalog bosses' `02 38` and `09 38` casts are kept per fight, with their targets. The review groups them by skill and lists each cast in order. Most boss skills have no name in the bundled tables.
+- **Still gated:**
+  - *Interrupts.* Cast ends carry a flag: 0 on instant casts and procs, and on the NPC casts that end at once; 12 on the recording player's ordinary cast ends; and rarely 2, 3, 15 or 33. Flag 3 also ends summoned spirits' basic attacks with nothing landing on the spirit, so it does not mean "interrupted by crowd control".
+  - *Misses.* None of the 13,048 decoded hits on enemies or 501 on players carried zero damage, so a miss or evasion travels in a record the decoder does not read yet.
+  - *Shield absorption and mitigation.* Neither is in the decoded records.
+  - *Movement.* Position updates arrive for party players (thousands per capture), but their units and map transforms are unverified. Dodges and skill leaps already appear in the rotation as casts.
+
+## Genus Insight advice checked against the model and the recorded boss fights (17 October)
+
+A Genus Insight guide for the global client (a video transcript) was compared with the planner's per-slot roll targets — each line at the midpoint of its best grade, on each class's optimized build, in the boss scenario with an even genus mix — and with the three recorded boss sessions in the diagnostic captures (15 player-fights, one to four players per class).
+
+**Where the model agrees with the guide.**
+
+- *Roll slot 4 first.* The best slot-4 line is worth 2.5–3.4% (PvE Damage Boost at 3%); no other slot's best line is worth more than 1.6%.
+- *PvE Damage Boost equals Damage Boost.* They share the additive boost bucket, so a point of either is worth the same; PvE Damage Boost ranks first only because it rolls higher (2–4% against 1.5–3%).
+- *Slots 1 and 5: PvE Attack and Boss Attack over Attack Bonus.* PvE Attack, Boss Attack and Penetration (+15, +15, +150, all flat damage in the model) beat Attack Bonus (+12, which scales with Attack % and the skill coefficient) for six classes. The Templar and Chanter are the exceptions: their higher Attack % and coefficients put Attack Bonus slightly ahead.
+- *Critical Damage Boost only for crit-heavy classes.* It is worth most to the Gladiator (1.0% against 0.2–0.5% for the others), still well below PvE Damage Boost.
+- *Natura: Multi-hit and Perfect Chance are bait.* Multi-hit is worth 0.16–0.28%, Perfect Chance less.
+- *Special: Double Chance.* Double Chance, Damage Boost and Front Attack Damage Boost are within 0.3% of each other.
+
+**Where it differs, and why.**
+
+- *Fera's Weapon Damage Boost.* The model treats it as an independent multiplier too, but at the community calculator's 66% efficiency, so it is worth 1.2–1.4%: third behind PvE Damage Boost and Damage Boost.
+- *Varian: front/back over PvE Damage Boost.* Per point, Front or Back Attack Damage Boost (its own multiplier) is worth 5–7% more than PvE Damage Boost. The boss's 30% tolerance keeps the additive bucket near 1, so additive boosts dilute little. Since PvE Damage Boost rolls higher, it still wins at matching grades; front/back overtakes it only from about 2.8%.
+- *Accuracy over crit.* The model treats Accuracy as a threshold it assumes is met, so it scores no accuracy line.
+
+**What the recorded boss fights show.** The hit record carries a position byte (1 = from behind, 2 = from the front, otherwise the side), the parry bit and the crit type. The model's crit rate is the hit-weighted crit chance inside the boss simulation, kit buffs and guaranteed crits included.
+
+| Class | Players | Boss hits | Crit, recorded | Crit, model | Parried | From behind | From the front |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Assassin | 1 | 2,115 | 62.6% | 26.3% | 0% | 77.4% | 15.0% |
+| Chanter | 2 | 1,477 | 30.9% | 14.4% | 0% | 58.8% | 18.9% |
+| Cleric | 1 | 835 | 29.7% | 9.5% | 0% | 64.6% | 23.0% |
+| Gladiator | 4 | 4,241 | 49.8% | 33.8% | 0.07% | 32.4% | 47.6% |
+| Ranger | 1 | 1,499 | 39.4% | 28.8% | 0.60% | 36.6% | 43.3% |
+| Sorcerer | 2 | 1,988 | 23.5% | 23.1% | 2.36% | 40.5% | 39.4% |
+| Spiritmaster | 2 | 1,457 | 21.1% | 20.7% | 3.77% | 53.9% | 24.8% |
+| Templar | 1 | 172 | 8.7% | 18.2% | 1.16% | 8.7% | 53.5% |
+
+- **Position.** The boss scenario counts every hit as frontal, so the model credits Front Attack lines on every hit and Back Attack lines on none. The flat Back Attack stat (`back_atk`, also the official profile's `BackFixingDamage`) does not reach the damage formula at all. In the recordings, 15–54% of a class's boss hits came from the front and 9–77% from behind.
+  - Weighted by those shares, Front and Back Attack Damage Boost fall to 0.2–1.6%. That is below Damage Boost and Double Chance for every class, the Assassin included.
+  - A Back Attack line in slot 1 or 5 would be worth about a third of a percent to the Assassin, against 0.64% for PvE Attack. The model also adds PvE Attack to damage-over-time ticks.
+- **Parries.** A parried hit loses half its damage.
+  - Bosses parried 0–0.6% of the Assassin's, Chanter's, Cleric's, Gladiator's and Ranger's hits, 2.4% of the Sorcerers' and 3.8% of the Spiritmasters' (5.2% for one).
+  - Accuracy that removed every parry would be worth up to about 1.2–1.9% to those casters and next to nothing to the others.
+  - Misses are not decoded, so how much evasion costs is unknown.
+- **Crit.**
+  - Recorded boss crit rates reach 51–63% (three Gladiators, the Assassin), so a hard 50% cap on every hit is not supported. A cap on the stat's own share cannot be ruled out.
+  - The model's crit rate matches the Sorcerers and Spiritmasters within a point. It is 11–36 points low for the Gladiators, Ranger, Chanters, Cleric and Assassin, and above the one Templar, who was tanking.
+  - The recorded players' crit stats are unknown, so this is a lead, not a fit. Where the curve runs low, Critical Hit and Critical Damage Boost lines are undervalued.
+
+**Follow-ups** (the roadmap tracks them):
+
+- a positional mix per class in the boss scenario, with Back Attack wired in;
+- a crit curve fitted to global fights whose players' crit stats are known;
+- parry and miss rates against Accuracy, before any accuracy line is scored.
+
+The Max Attack, PvE Accuracy, Front/Back Attack Critical Hit and Power Shard Damage Bonus lines are not modeled yet.
 
 ## Classification review of recent uploads (16 October): one real defect, the rest data-gated
 
