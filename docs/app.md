@@ -334,7 +334,7 @@ Save or export retained combat, stop capture, then clear the session before chan
 
 ## Long recordings and archive parts
 
-Long captures save numbered archive parts before retained-history limits are reached. Each part shares an archive ID and appears in **Combat Logs → Saved Parts**. Capture continues with its decoder and identity context; Live Meter export/upload covers the current part. Open earlier parts separately to review or upload them.
+Long captures save numbered archive parts before retained-history limits are reached. Each part shares an archive ID and appears in **Combat Logs → Saved Parts**. Capture continues with its decoder and identity context; Live Meter export/upload covers the current part. Open earlier parts separately to review or upload them. Pressing **Start** again on a stopped session that still holds combat also begins the next part: Stop saved the stopped part as finished (and the automatic upload sent it as such), so what you record after the restart goes into a part of its own, linked to the one before. The restart still ends the open run, as packets were missed while stopped.
 
 There is no fixed total part count or automatic deletion; disk space is the practical limit. A part boundary is not a kill or completed instance. Boundary parts are conservatively unranked and are not automatically stitched together. Failed rollover saves stop capture visibly and retain memory. Recovery checkpoints are saved every 15 seconds; abrupt termination can lose newer unsaved data. See [retention limits](methodology.md#archive-boundaries-and-retention).
 
@@ -448,7 +448,7 @@ Live Meter and the overlay both have **Combine pets with owner**, enabled by def
 
 Upload a retained fight or saved part to the server selected in Settings. Choose **Public**, **Unlisted** or **Private** deliberately; uploads default to Unlisted. The GitHub Pages site reviews logs through that server API rather than storing uploads itself. Official desktop builds provide the community upload configuration for the default server; custom servers may require a key.
 
-**My Uploads** uses separate ownership credentials to change visibility, rotate private links or delete uploads. Export a private credential backup before moving devices. A shared upload key or character name does not recover ownership. See [privacy and ownership](user-guide.md#my-uploads-and-privacy).
+**My Uploads** uses separate ownership credentials to change visibility, rotate private links or delete uploads. An upload a moderator has put on hold shows the moderator's note and **Appeal this hold**: a short explanation sent with the upload's own credential, once per hold, which a moderator upholds or overturns with a note shown in the same place. An overturned hold leaves the upload private until you choose its visibility again. Export a private credential backup before moving devices. A shared upload key or character name does not recover ownership. See [privacy and ownership](user-guide.md#my-uploads-and-privacy).
 
 **Saved Parts** supports a sequential upload queue. Select local files, choose visibility and upload; each file becomes an independent report. Results show progress, report links and errors. **Restore saved queue** or an exported recovery file resumes local queue metadata; Pages requires you to reselect the original files. Check My Uploads before explicitly retrying an uncertain request, because the server may have accepted it already. File fingerprints verify content and saved random request IDs let updated servers reuse matching accepted requests. Older servers and legacy uncertain requests can still duplicate. Clearing a queue starts fresh request IDs. Retry receipts do not reissue private links or ownership tokens; use the original My Uploads entry or ownership backup. Recovery files do not grant ownership. See [saved-part uploads](user-guide.md#review-and-upload-saved-parts) and [queue recovery](user-guide.md#resume-uploads).
 
@@ -461,6 +461,8 @@ With **Hide me in other uploaders' public logs, leaderboards and parse brackets*
 Another uploader can claim a character you hold only with recordings newer than yours; the panel then shows a seven-day notice, and you keep the character by uploading a public recording of yours that is newer than theirs and pressing **Renew**. Otherwise the claim passes to them. **Release** gives a character up. Nothing in a claim changes who recorded a log or how it ranks.
 
 Recovery needs no extra secret: on another computer, restore your ownership backup (My uploads → export/import) and press **Recover**; the credentials of three of the claim's own recordings reissue the identity credential. The website's Combat Logs page offers the same panel from the credentials saved in that browser.
+
+A moderator can revoke a claim. The panel then shows the moderator's note, and the recordings the claim was built on can no longer claim the character; newer recordings of yours still can (**Claim with newer recordings**). **Appeal the revocation** asks a moderator to look again, once, with this claim's own credential; the panel shows when it was sent and, once decided, whether it was upheld or overturned with the moderator's note. An overturned revocation gives you the character back, unless someone has claimed it in the meantime.
 
 ## Community comparisons
 
