@@ -405,15 +405,15 @@ def main(argv: list[str] | None = None) -> int:
         if args.buffs:
             r = C.buff_checks(args.buffs)
             print(f"buff contribution check: {len(r['fights'])} fights with a comparison in {r['files']} files")
-            print("  measured: the same player's same-skill plain hits (no critical, double, perfect or periodic")
-            print("  damage, outside breaks) with only that buff group up, against none of them up")
+            print("  measured: the same player's plain hits with one skill on one target (no critical, double,")
+            print("  perfect or periodic damage, outside breaks) with only that buff group up, against none of them up")
             for f in r["fights"]:
                 print(f"  {f['file'][:40]:40s} #{f['segment']:<3d} {str(f['label'] or '')[:24]:24s} " +
                       "; ".join(f"{c['group']} {c['measured_pct']:+.1f}% vs {c['estimated_pct']:+.1f}% "
                                 f"({c['hits_on']}/{c['hits_off']} hits)" for c in f["checks"]))
             for c in r["pooled"]:
                 print(f"\n  {C.BUFF_GROUPS.get(c['group'], c['group'])}")
-                print(f"    {c['fights']} fights, {c['pairs']} player-skill pairs, {c['hits_on']} hits with / "
+                print(f"    {c['fights']} fights, {c['pairs']} player-skill-target pairs, {c['hits_on']} hits with / "
                       f"{c['hits_off']} without: measured {c['measured_pct']:+.1f}%, estimated {c['estimated_pct']:+.1f}%")
             if not r["pooled"]:
                 print("  no fight had enough plain hits both with and without a credited buff to compare")
@@ -684,8 +684,8 @@ def compare_markdown(rows, scenario: str, iterations: int) -> str:
           "times measured from recorded fights where captures exist; the kits' fidelity is shown as the share "
           "overlap with Korean A2DIL dummy logs where available. **This is not a class tier list**: absolute "
           "numbers depend on each kit's audited assumptions (pet cadence, boss-break uptime, DoT spread) and "
-          "assume a player doing nothing but damage, but for a Cleric's heals at the recorded rate in a boss "
-          "fight.\n",
+          "assume a player doing nothing but damage, but for the Cleric's and the Chanter's heals at their "
+          "recorded rates in a boss fight.\n",
           "| Class | Optimized DPS | Typical top build DPS | Gain | KR share overlap | Report |",
           "|---|---:|---:|---:|---:|---|"]
     for cls, dps, comm, fid in rows:
@@ -695,6 +695,9 @@ def compare_markdown(rows, scenario: str, iterations: int) -> str:
         md.append("\nThe Cleric's boss number includes its heals at the recorded Clerics' rate (4.6 a minute, about "
                   "3.4 % of the fight). Recorded Clerics still fit about a third as many Condemnations into each "
                   "Earth Punishment window: they press Judgment Thunder there as well.")
+    if any(r[0] == "chanter" for r in rows):
+        md.append("\nThe Chanter's boss number includes its heals at the recorded Chanters' rate (1.2 a minute, about "
+                  "1 % of the fight).")
     return "\n".join(md) + "\n"
 
 
