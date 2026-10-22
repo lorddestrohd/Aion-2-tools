@@ -901,7 +901,13 @@ class Handler(BaseHTTPRequestHandler):
                 close()
                 return self._json({"hidden": True})
             port = self.server.server_address[1]
-            return self._json(launch(f"http://127.0.0.1:{port}/overlay"))
+            # Open overlay while it is open asks the overlay to reload its page (a blank one comes back).
+            return self._json(launch(f"http://127.0.0.1:{port}/overlay", reload_if_open=True))
+        if path == "/api/overlay/health":
+            # The overlay page's own errors, into the overlay log beside the watchdog's notes.
+            if self.client_address[0] not in ("127.0.0.1", "::1"):
+                raise PermissionError("the overlay log is written only on this computer")
+            return self._json(overlay_health_note(body))
         if path.startswith("/api/encounters/") and path.endswith("/share"):
             from ..combat import share
             return self._json(share.share_encounter(int(path.split("/")[3]), visibility=body.get("visibility")))
@@ -1115,7 +1121,7 @@ class Handler(BaseHTTPRequestHandler):
                 cur["overlay_text_autocontrast"] = body["overlay_text_autocontrast"]
             _ui_bool_flags = ("tray_on_close", "overlay_show_contribution", "overlay_show_target",
                               "overlay_show_deaths", "overlay_show_enemy_hp", "overlay_show_ttk",
-                              "overlay_show_cooldowns", "overlay_show_break_gauge",
+                              "overlay_show_cooldowns", "overlay_show_break_gauge", "overlay_show_odyle",
                               "meter_reset_after_battle", "meter_reset_on_boss_start", "meter_show_dummy_parse", "overlay_show_combat_power",
                               "overlay_only_in_combat", "overlay_auto_expand",
                               "overlay_resizable", "overlay_snap_edge", "overlay_expand_up",
@@ -1289,12 +1295,33 @@ TRAY: dict = {}   # the launcher stores a running collapse-to-tray icon here, so
 # acts each time a counter increases. "lock" toggles the screenshot freeze — which needs
 # this channel because a locked overlay stops its meter poll, so the 10s settings sync
 # can't reach it to unlock.
-OVERLAY_COMMANDS: dict = {"lock_seq": 0}
+OVERLAY_COMMANDS: dict = {"lock_seq": 0, "reload_seq": 0}
 
 
 def pulse_overlay_lock() -> None:
     """Ask the overlay to toggle its screenshot lock on its next command poll."""
     OVERLAY_COMMANDS["lock_seq"] = OVERLAY_COMMANDS.get("lock_seq", 0) + 1
+
+
+_OVERLAY_NOTES: list = []   # when the page's error reports arrived, to keep them to 60 an hour
+
+
+def overlay_health_note(body: dict) -> dict:
+    """Write one line the overlay page reported (a script error, an unhandled rejection) to
+    ``logs/overlay.log``, so a fault that shows only after hours is on record next to the watchdog's
+    own notes. Bounded: 512 characters a line, 60 lines an hour."""
+    import time as _time
+    from ..overlay_health import OverlayLog
+    from ..paths import logs_dir
+    now = _time.time()
+    _OVERLAY_NOTES[:] = [t for t in _OVERLAY_NOTES if now - t < 3600]
+    if len(_OVERLAY_NOTES) >= 60:
+        return {"written": False, "reason": "limit"}
+    kind = str(body.get("kind") or "note")[:32].replace("\n", " ")
+    message = str(body.get("message") or "")[:512].replace("\n", " ")
+    _OVERLAY_NOTES.append(now)
+    OverlayLog(logs_dir() / "overlay.log", "overlay page").write(f"{kind}: {message}")
+    return {"written": True}
 
 
 def _auto_upload_on_quit() -> None:
@@ -1484,6 +1511,8 @@ def ui_settings() -> dict:
                 # Skill-cooldown strip and boss break-gauge bar (both off by default).
                 "overlay_show_cooldowns": False, "overlay_cooldowns_min_s": 3, "overlay_cooldowns_max": 8,
                 "overlay_cooldowns_position": "bottom", "overlay_show_break_gauge": False,
+                # Your Odyle Energy on the overlay and the Live Meter page (on by default).
+                "overlay_show_odyle": True,
                 "meter_reset_after_battle": False, "meter_reset_on_boss_start": True, "meter_reset_delay": 5, "meter_max_records": 20,
                 "meter_show_dummy_parse": True, "meter_dummy_record_seconds": 60,
                 "overlay_show_combat_power": True, "overlay_show_community_rank": False, "overlay_live_community_rank": False,
