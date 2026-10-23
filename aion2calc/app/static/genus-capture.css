@@ -13,7 +13,7 @@ body.genus-capture-page { min-height: 0; background: transparent !important; col
 .genus-capture-main { display: flex; flex: 0 0 auto; flex-direction: column; min-height: 0; width: 100%; gap: 6px; }
 .genus-capture-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; color: #9aa3b5; font-size: 10.5px; }
 .genus-capture-controls label { white-space: nowrap; }
-.genus-capture-controls select, .genus-capture-row input, .genus-capture-meta input, .genus-capture-meta select {
+.genus-capture-controls select, .genus-capture-row input, .genus-capture-row select, .genus-capture-meta input, .genus-capture-meta select {
   min-width: 0; height: 23px; padding: 2px 5px; border: 1px solid rgba(255,255,255,.12);
   border-radius: 5px; background: rgba(255,255,255,.06); color: #eceae3; font: inherit; }
 .genus-capture-controls select { flex: 0 1 108px; }
@@ -32,7 +32,8 @@ body.genus-capture-page { min-height: 0; background: transparent !important; col
   min-height: 29px; padding: 3px 6px; border: 1px solid rgba(255,255,255,.06);
   border-radius: 7px; background: rgba(255,255,255,.045); font-size: 10.5px; }
 .genus-capture-row strong { color: #9aa3b5; font-size: 10px; }
-.genus-capture-row input { width: 100%; }
+.genus-stat-picker { display: grid; min-width: 0; gap: 3px; }
+.genus-capture-row input, .genus-capture-row select { width: 100%; }
 .genus-capture-row input:focus, .genus-capture-meta input:focus, .genus-capture-meta select:focus {
   border-color: rgba(233,203,128,.65); outline: none; }
 .genus-capture-review { margin: 0; color: #7f8aa3; font-size: 10px; }

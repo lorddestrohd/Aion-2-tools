@@ -82,13 +82,14 @@ def parse_text(text: str) -> dict:
         stat = _match_stat(line, properties)
         value_match = re.search(r"([-+]?\d+(?:[.,]\d+)?\s*%?)\s*$", line)
         number_only = re.fullmatch(r"[-+]?\d+(?:[.,]\d+)?\s*%?", line)
-        if not stat and not number_only:
-            continue
         if not value_match:
             unmatched.append(line)
             continue
         value = value_match.group(1).replace(",", ".").replace(" ", "")
-        parsed.append({"slot": len(parsed) + 1, "stat": stat, "value": value})
+        row = {"slot": len(parsed) + 1, "stat": stat, "value": value}
+        if stat is None:
+            row["unrecognized_stat"] = re.sub(r"[-+]?\d+(?:[.,]\d+)?\s*%?\s*$", "", line).strip()
+        parsed.append(row)
     return {
         "genus": genus,
         "level": level,

@@ -204,6 +204,12 @@ def test_app_server_endpoints(home, monkeypatch):
         assert "background: transparent !important" in genus_css
         genus_js = urllib.request.urlopen(base + "/static/genus-capture.js", timeout=10).read().decode("utf-8").replace("\r\n", "\n")
         assert 'control.addEventListener(type, (event) => event.stopPropagation())' in genus_js
+        assert 'data-genus-stat-choice="${line.slot}"' in genus_js
+        assert 'fetch("/api/genus/properties")' in genus_js
+        genus_properties = get("/api/genus/properties")
+        assert "Cogni" in genus_properties and "Special" in genus_properties
+        assert "Back Attack" in genus_properties["Cogni"]["1"]
+        assert "Cogni Damage Boost" in genus_properties["Cogni"]["4"]
         assert "Capture the next genus when ready." in genus_js
         assert "Captura el siguiente genus cuando quieras." in genus_js
         assert 'recognized = null;\n        $("#genus-results").replaceChildren();' in genus_js

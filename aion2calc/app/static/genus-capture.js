@@ -17,6 +17,10 @@
       ready: "Ready when the game's Genus Insight panel is open.",
       send: "Send to Genus editor",
       sendToCharacter: "Save to selected character",
+      chooseStat: "Choose stat…",
+      otherStat: "Other (enter manually)",
+      manualStat: "Type stat name",
+      optionsFallback: "Stat catalog unavailable; choose Other and enter each name manually.",
       slot: "Slot",
       genus: "Genus",
       level: "Level",
@@ -48,6 +52,10 @@
       ready: "Listo cuando esté abierto el panel Genus Insight del juego.",
       send: "Enviar al editor de Genus",
       sendToCharacter: "Guardar en el personaje seleccionado",
+      chooseStat: "Selecciona una estadística…",
+      otherStat: "Otra (escribir manualmente)",
+      manualStat: "Escribe el nombre de la estadística",
+      optionsFallback: "Catálogo no disponible; elige Otra y escribe los nombres manualmente.",
       slot: "Ranura",
       genus: "Genus",
       level: "Nivel",
@@ -73,6 +81,7 @@
   };
   const t = (key) => copy[language][key];
   const targetCharacter = new URLSearchParams(window.location.search).get("character");
+  let statOptions = {};
   let recognized = null;
   function fitWindow() {
     const nativeApi = window.pywebview?.api;
@@ -118,17 +127,65 @@
     const count = Number.isInteger(result.level) && result.level > 0 ? Math.min(result.level, 9) : 9;
     const lines = new Map((result.lines || []).map((line) => [line.slot, line]));
     const rows = Array.from({ length: count }, (_, i) => lines.get(i + 1) || { slot: i + 1, stat: "", value: "" })
-      .map((line) => `<div class="genus-capture-row"><strong>${t("slot")} ${line.slot}</strong>
-        <input data-genus-stat="${line.slot}" aria-label="${esc(t("slot"))} ${line.slot} ${esc(t("stat"))}" value="${esc(line.stat)}" placeholder="${esc(t("stat"))}">
-        <input data-genus-value="${line.slot}" aria-label="${esc(t("slot"))} ${line.slot} ${esc(t("value"))}" value="${esc(line.value)}" placeholder="${esc(t("value"))}"></div>`).join("");
+      .map((line) => {
+        const choices = statOptions[result.genus]?.[line.slot] || [];
+        const custom = !choices.includes(line.stat);
+        const choiceOptions = choices.map((stat) => `<option value="${esc(stat)}" ${line.stat === stat ? "selected" : ""}>${esc(stat)}</option>`).join("");
+        const manualValue = line.stat || line.unrecognized_stat || "";
+        return `<div class="genus-capture-row"><strong>${t("slot")} ${line.slot}</strong>
+        <div class="genus-stat-picker">
+          <select data-genus-stat-choice="${line.slot}" aria-label="${esc(t("slot"))} ${line.slot} ${esc(t("stat"))}">
+            <option value="">${esc(t("chooseStat"))}</option>${choiceOptions}
+            <option value="__custom__" ${custom ? "selected" : ""}>${esc(t("otherStat"))}</option>
+          </select>
+          <input data-genus-stat="${line.slot}" aria-label="${esc(t("slot"))} ${line.slot} ${esc(t("stat"))}" value="${esc(manualValue)}" placeholder="${esc(t("manualStat"))}" ${custom ? "" : "hidden"}>
+        </div>
+        <input data-genus-value="${line.slot}" aria-label="${esc(t("slot"))} ${line.slot} ${esc(t("value"))}" value="${esc(line.value)}" placeholder="${esc(t("value"))}"></div>`;
+      }).join("");
     $("#genus-results").innerHTML = `<div class="genus-capture-meta">
       <label>${t("genus")} <select id="genus-name">${options}</select></label>
       <label>${t("level")} <input id="genus-level" type="number" min="1" max="10" value="${esc(result.level ?? "")}"></label>
       </div>${rows}<p class="genus-capture-review">${t("review")}</p>
       <details><summary>${t("ocrText")}</summary><pre id="genus-ocr-text">${esc(result.text || "")}</pre></details>`;
     $("#genus-status").textContent = `${result.lines?.length || 0}/9 · ${t("review")}`;
+    $("#genus-name").onchange = () => updateStatChoices($("#genus-name").value);
+    $("#genus-results").querySelectorAll("[data-genus-stat-choice]").forEach((select) => {
+      select.onchange = () => {
+        const input = $("#genus-results").querySelector(`[data-genus-stat="${select.dataset.genusStatChoice}"]`);
+        input.hidden = select.value !== "__custom__";
+        if (select.value !== "__custom__") input.value = "";
+        else input.focus();
+      };
+    });
     $("#genus-send").disabled = false;
     requestAnimationFrame(fitWindow);
+  }
+
+  function updateStatChoices(genus) {
+    $("#genus-results").querySelectorAll("[data-genus-stat-choice]").forEach((select) => {
+      const slot = select.dataset.genusStatChoice;
+      const input = $("#genus-results").querySelector(`[data-genus-stat="${slot}"]`);
+      const previous = select.value === "__custom__" ? input.value : select.value;
+      const choices = statOptions[genus]?.[slot] || [];
+      const known = choices.includes(previous);
+      select.innerHTML = `<option value="">${esc(t("chooseStat"))}</option>${choices.map((stat) => `<option value="${esc(stat)}">${esc(stat)}</option>`).join("")}<option value="__custom__">${esc(t("otherStat"))}</option>`;
+      if (known) {
+        select.value = previous;
+        input.value = "";
+        input.hidden = true;
+      } else {
+        select.value = "__custom__";
+        input.value = previous;
+        input.hidden = false;
+      }
+    });
+  }
+
+  async function loadStatOptions() {
+    const response = await fetch("/api/genus/properties");
+    const body = await response.json();
+    if (!response.ok || !body || typeof body !== "object") throw Error(body.error || t("captureError"));
+    statOptions = body;
   }
 
   applyLanguage();
@@ -151,7 +208,16 @@
     $("#genus-results").replaceChildren();
     $("#genus-status").textContent = language === "es" ? "Capturando un fotograma y leyéndolo localmente…" : "Capturing one frame and reading it locally…";
     try {
-      showCapture(await nativeApi.capture_genus($("#genus-language").value));
+      const result = await nativeApi.capture_genus($("#genus-language").value);
+      let optionsUnavailable = false;
+      try {
+        await loadStatOptions();
+      } catch (error) {
+        optionsUnavailable = true;
+        console.error("Could not load Genus stat options:", error);
+      }
+      showCapture(result);
+      if (optionsUnavailable) $("#genus-status").textContent += ` · ${t("optionsFallback")}`;
     } catch (error) {
       $("#genus-status").textContent = t("error") + errorText(error);
     } finally {
@@ -164,7 +230,9 @@
     const level = Number($("#genus-level").value);
     const lines = [...$("#genus-results").querySelectorAll("[data-genus-stat]")].map((input) => ({
       slot: Number(input.dataset.genusStat),
-      stat: input.value.trim(),
+      stat: (input.hidden
+        ? $("#genus-results").querySelector(`[data-genus-stat-choice="${input.dataset.genusStat}"]`)?.value
+        : input.value).trim(),
       value: $("#genus-results").querySelector(`[data-genus-value="${input.dataset.genusStat}"]`)?.value.trim() || ""
     }));
     if (!Number.isInteger(level) || level < 1 || level > 10 || lines.length !== Math.min(level, 9) ||

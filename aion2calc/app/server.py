@@ -668,6 +668,17 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"capture": draft["capture"] if draft else None,
                                "created": draft["created"] if draft else None,
                                "id": draft["id"] if draft else None})
+        if path == "/api/genus/properties":
+            from ..plan.genus import properties
+            catalog = properties().get("genera", {})
+            options = {
+                genus: {
+                    str(slot): list(stats)
+                    for slot, stats in data.get("slots", {}).items()
+                }
+                for genus, data in catalog.items()
+            }
+            return self._json(options)
         if path == "/api/assets":
             from ..db.assets import report
             from .image_health import report as image_report

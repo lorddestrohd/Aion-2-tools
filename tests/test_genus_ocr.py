@@ -38,7 +38,15 @@ def test_parse_keeps_unrecognized_value_in_its_slot_for_review():
     result = parse_text("Cogni Insight\nLV. 10\nAnalysis Effect\nBack Attack 13\n39\n")
     assert result["lines"] == [
         {"slot": 1, "stat": "Back Attack", "value": "13"},
-        {"slot": 2, "stat": None, "value": "39"},
+        {"slot": 2, "stat": None, "value": "39", "unrecognized_stat": ""},
+    ]
+    assert result["needs_review"] is True
+
+
+def test_unrecognized_stat_text_is_preserved_for_manual_selection():
+    result = parse_text("Cogni Insight\nLV. 10\nAnalysis Effect\nUnlisted Stat 13\n")
+    assert result["lines"] == [
+        {"slot": 1, "stat": None, "value": "13", "unrecognized_stat": "Unlisted Stat"},
     ]
     assert result["needs_review"] is True
 
