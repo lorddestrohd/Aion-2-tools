@@ -29,6 +29,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 
 from ..overlay_health import OverlayLog, RelaunchLimiter
 
@@ -36,6 +37,8 @@ from ..overlay_health import OverlayLog, RelaunchLimiter
 _PROCESS: subprocess.Popen | None = None
 _PARTY_PROCESS: subprocess.Popen | None = None
 _RADAR_PROCESS: subprocess.Popen | None = None
+_GENUS_PROCESS: subprocess.Popen | None = None
+_GENUS_CHARACTER: str | None = None
 _LOCK = threading.Lock()
 _RELAUNCHES = RelaunchLimiter()
 _URL = ""                       # the overlay URL of the last launch, for the companions' syncs
@@ -228,12 +231,72 @@ def launch(url: str, reload_if_open: bool = False) -> dict:
             return {"native": False, "reason": f"{type(err).__name__}: {err}"}
 
 
+def launch_genus_capture(url: str, character: str | None = None) -> dict:
+    """Open the standalone native Genus reader without replacing the combat overlay."""
+    global _GENUS_PROCESS, _GENUS_CHARACTER
+    if sys.platform != "win32":
+        return {"native": False, "reason": "The Genus screen reader currently requires Windows."}
+    if not available():
+        return {"native": False, "reason": "The native capture window requires pywebview."}
+    with _LOCK:
+        if _GENUS_PROCESS is not None and _GENUS_PROCESS.poll() is None:
+            if _GENUS_CHARACTER != character:
+                return {"native": False, "already_open": True,
+                        "reason": "Close the open Genus capture window before selecting a different character."}
+            return {"native": True, "already_open": True, "reason": ""}
+        try:
+            parsed = urllib.parse.urlsplit(url)
+            if parsed.path.rstrip("/") != "/genus-capture":
+                raise ValueError("The Genus reader URL must use the dedicated capture page.")
+            if character is not None:
+                if not isinstance(character, str) or not character or len(character) > 200:
+                    raise ValueError("The selected character key is invalid.")
+                query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+                query.append(("character", character))
+                url = urllib.parse.urlunsplit(parsed._replace(query=urllib.parse.urlencode(query)))
+            _GENUS_PROCESS = _spawn(url)
+            _GENUS_CHARACTER = character
+            proc = _GENUS_PROCESS
+            threading.Thread(target=_watch_genus_capture, args=(proc,),
+                             daemon=True, name="genus-capture-supervisor").start()
+            time.sleep(0.2)
+            code = proc.poll()
+            if code is not None:
+                _GENUS_PROCESS = None
+                _GENUS_CHARACTER = None
+                return {"native": False,
+                        "reason": f"The Genus capture process exited during startup (code {code}); check the overlay log."}
+            return {"native": True, "already_open": False, "reason": ""}
+        except Exception as err:                                              # noqa: BLE001 - report, keep serving
+            _GENUS_PROCESS = None
+            _GENUS_CHARACTER = None
+            _log(f"could not start the Genus capture window: {type(err).__name__}: {err}")
+            return {"native": False, "reason": f"{type(err).__name__}: {err}"}
+
+
+def _watch_genus_capture(proc: subprocess.Popen) -> None:
+    """Release the single-instance slot and preserve failures from the native reader."""
+    global _GENUS_PROCESS, _GENUS_CHARACTER
+    wait = getattr(proc, "wait", None)
+    if wait is None:
+        return
+    code = wait()
+    with _LOCK:
+        if _GENUS_PROCESS is not proc:
+            return
+        _GENUS_PROCESS = None
+        _GENUS_CHARACTER = None
+    if code:
+        _log(f"the Genus capture window exited with code {code}; see the overlay log for its startup error")
+
+
 def close() -> None:
     """Close the native overlay(s) when the main desktop application exits."""
-    global _PROCESS, _PARTY_PROCESS, _RADAR_PROCESS
+    global _PROCESS, _PARTY_PROCESS, _RADAR_PROCESS, _GENUS_PROCESS, _GENUS_CHARACTER
     with _LOCK:
-        procs = (_PROCESS, _PARTY_PROCESS, _RADAR_PROCESS)
-        _PROCESS = _PARTY_PROCESS = _RADAR_PROCESS = None
+        procs = (_PROCESS, _PARTY_PROCESS, _RADAR_PROCESS, _GENUS_PROCESS)
+        _PROCESS = _PARTY_PROCESS = _RADAR_PROCESS = _GENUS_PROCESS = None
+        _GENUS_CHARACTER = None
         for proc in procs:
             if proc is not None and proc.poll() is None:
                 proc.terminate()

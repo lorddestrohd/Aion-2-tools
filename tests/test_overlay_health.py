@@ -243,6 +243,7 @@ def launcher(monkeypatch, tmp_path):
     monkeypatch.setattr(overlay_launch, "_party_enabled", lambda: False)
     monkeypatch.setattr(overlay_launch, "_PROCESS", None)
     monkeypatch.setattr(overlay_launch, "_PARTY_PROCESS", None)
+    monkeypatch.setattr(overlay_launch, "_GENUS_PROCESS", None)
     monkeypatch.setattr(overlay_launch, "_RELAUNCHES", RelaunchLimiter())
     return spawned
 
@@ -288,6 +289,50 @@ def test_open_overlay_while_open_asks_it_to_reload(launcher):
     assert server.OVERLAY_COMMANDS["reload_seq"] == before                  # a plain launch (app start) does not
     overlay_launch.launch("http://127.0.0.1:1/overlay", reload_if_open=True)
     assert server.OVERLAY_COMMANDS["reload_seq"] == before + 1               # the Open button does
+
+
+def test_genus_capture_uses_a_separate_single_instance_window(launcher, monkeypatch):
+    spawned, urls = launcher, []
+    monkeypatch.setattr(overlay_launch.sys, "platform", "win32")
+    monkeypatch.setattr(overlay_launch, "_spawn", lambda url: urls.append(url) or spawned.append(_Popen()) or spawned[-1])
+    url = "http://127.0.0.1:1/genus-capture"
+    assert overlay_launch.launch_genus_capture(url) == {"native": True, "already_open": False, "reason": ""}
+    assert overlay_launch.launch_genus_capture(url)["already_open"] is True
+    mismatch = overlay_launch.launch_genus_capture(url, "another-character")
+    assert mismatch["native"] is False and "different character" in mismatch["reason"]
+    assert urls == [url] and len(spawned) == 1
+    overlay_launch.close()
+
+
+def test_genus_capture_child_failure_is_logged_and_can_be_relaunched(launcher, monkeypatch, tmp_path):
+    spawned = launcher
+    monkeypatch.setattr(overlay_launch.sys, "platform", "win32")
+    url = "http://127.0.0.1:1/genus-capture"
+    assert overlay_launch.launch_genus_capture(url)["native"] is True
+    spawned[0].end(1)
+
+    assert _wait_for(lambda: overlay_launch._GENUS_PROCESS is None)
+    assert "Genus capture window exited with code 1" in (
+        tmp_path / "logs" / "overlay.log").read_text(encoding="utf-8")
+    assert overlay_launch.launch_genus_capture(url)["native"] is True
+    assert len(spawned) == 2
+    overlay_launch.close()
+
+
+def test_genus_capture_reports_a_process_that_exits_during_startup(launcher, monkeypatch):
+    monkeypatch.setattr(overlay_launch.sys, "platform", "win32")
+
+    def failed_spawn(_url):
+        proc = _Popen()
+        proc.end(1)
+        return proc
+
+    monkeypatch.setattr(overlay_launch, "_spawn", failed_spawn)
+    result = overlay_launch.launch_genus_capture("http://127.0.0.1:1/genus-capture")
+
+    assert result["native"] is False
+    assert "exited during startup (code 1)" in result["reason"]
+    assert overlay_launch._GENUS_PROCESS is None
 
 
 def test_the_page_reports_its_errors_and_the_app_writes_them(monkeypatch, tmp_path):

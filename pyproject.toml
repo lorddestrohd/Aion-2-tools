@@ -15,6 +15,15 @@ dependencies = ["numpy>=1.24", "matplotlib>=3.7", "pulp>=2.8,<4", "pillow>=9.1",
 
 [project.optional-dependencies]
 dev = ["pytest>=7"]
+genus-ocr = [
+    "mss>=9.0; sys_platform == 'win32'",
+    "winrt-Windows.Foundation>=3.2.1,<4; sys_platform == 'win32'",
+    "winrt-Windows.Foundation.Collections>=3.2.1,<4; sys_platform == 'win32'",
+    "winrt-Windows.Globalization>=3.2.1,<4; sys_platform == 'win32'",
+    "winrt-Windows.Graphics.Imaging>=3.2.1,<4; sys_platform == 'win32'",
+    "winrt-Windows.Media.Ocr>=3.2.1,<4; sys_platform == 'win32'",
+    "winrt-Windows.Storage.Streams>=3.2.1,<4; sys_platform == 'win32'",
+]
 
 [project.scripts]
 aion2calc = "aion2calc.__main__:main"

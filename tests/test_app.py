@@ -150,10 +150,15 @@ def test_combat_csv_breakdown():
     assert a["summary"]["idle_seconds"] > 40                                       # 50 s gap
 
 
-def test_app_server_endpoints(home):
+def test_app_server_endpoints(home, monkeypatch):
     from http.server import ThreadingHTTPServer
 
+    from aion2calc.app import overlay_launch
     from aion2calc.app.server import Handler
+    launched = []
+    monkeypatch.setattr(overlay_launch, "launch_genus_capture",
+                        lambda url, character=None: launched.append((url, character)) or
+                        {"native": True, "already_open": False, "reason": ""})
     srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{srv.server_address[1]}"
@@ -164,6 +169,10 @@ def test_app_server_endpoints(home):
     def post(path, body):
         req = urllib.request.Request(base + path, json.dumps(body).encode(), {"Content-Type": "application/json"})
         return json.loads(urllib.request.urlopen(req, timeout=30).read())
+    def post_local(path, body):
+        req = urllib.request.Request(base + path, json.dumps(body).encode(),
+                                     {"Content-Type": "application/json", "Origin": base})
+        return json.loads(urllib.request.urlopen(req, timeout=30).read())
     try:
         assert "sorcerer" in get("/api/classes")
         assert get("/api/status")["db"]["items"] >= 0
@@ -171,7 +180,64 @@ def test_app_server_endpoints(home):
         assert res and res[0]["class"] == "sorcerer"
         v = get("/api/build?path=" + res[0]["path"])
         assert v["skills"]["active"] and v["daevanion"]["boards"] and v["equipment"]["slots"]
-        assert urllib.request.urlopen(base + "/", timeout=10).status == 200
+        index = urllib.request.urlopen(base + "/", timeout=10)
+        assert index.status == 200
+        index_html = index.read().decode("utf-8")
+        assert '<html lang="es">' in index_html and 'id="language-select"' in index_html
+        assert 'src="/static/i18n.js"' in index_html
+        i18n = urllib.request.urlopen(base + "/static/i18n.js", timeout=10)
+        assert i18n.status == 200
+        assert '"Gear & Advice": "Equipo y recomendaciones"' in i18n.read().decode("utf-8")
+        app_js = urllib.request.urlopen(base + "/static/app.js", timeout=10).read().decode("utf-8")
+        assert "api('/api/genus/capture',{character:inventoryKey})" in app_js
+        genus_editor_js = urllib.request.urlopen(base + "/static/genus-editor.js", timeout=10).read().decode("utf-8")
+        assert "locked=!unknown&&slot>level" in genus_editor_js
+        assert "Enter the actual Insight level before saving lines." in genus_editor_js
+        overlay_html = urllib.request.urlopen(base + "/overlay", timeout=10).read().decode("utf-8")
+        assert 'id="ovgenus-open"' not in overlay_html and 'id="ovcapture"' in overlay_html
+        genus_html = urllib.request.urlopen(base + "/genus-capture", timeout=10).read().decode("utf-8")
+        assert 'href="/static/overlay.css"' in genus_html and 'id="genus-read"' in genus_html
+        assert 'id="genus-send"' in genus_html and 'id="genus-close"' in genus_html
+        assert 'pywebview-drag-region' in genus_html
+        assert 'href="/static/app.css"' not in genus_html
+        genus_css = urllib.request.urlopen(base + "/static/genus-capture.css", timeout=10).read().decode("utf-8")
+        assert "background: transparent !important" in genus_css
+        genus_js = urllib.request.urlopen(base + "/static/genus-capture.js", timeout=10).read().decode("utf-8")
+        assert 'control.addEventListener(type, (event) => event.stopPropagation())' in genus_js
+        assert post_local("/api/genus/capture", {})["native"] is True
+        assert post_local("/api/genus/capture", {"character": "naeu_marchutan_lordd"})["native"] is True
+        assert launched == [(base + "/genus-capture", None),
+                            (base + "/genus-capture", "naeu_marchutan_lordd")]
+        assert "capture-save" in genus_js and "sendToCharacter" in genus_js
+        from aion2calc.app import server as app_server
+        from aion2calc.plan import inventory as inventory_module
+        existing = {"profile": "test", "genus": {
+            "Fera": {"level": 1, "lines": [{"slot": 1, "stat": "Attack", "value": "5"}]}}}
+        saved_inventories = []
+        monkeypatch.setattr(app_server, "_inventory", lambda character: (None, existing))
+        monkeypatch.setattr(inventory_module, "save", lambda inv: saved_inventories.append(json.loads(json.dumps(inv))))
+        saved = post_local("/api/genus/capture-save", {
+            "character": "naeu_marchutan_lordd",
+            "capture": {"genus": "Cogni", "level": 1,
+                        "lines": [{"slot": 1, "stat": "Back Attack", "value": "13"}]}})
+        assert saved["saved"] is True and saved["character"] == "naeu_marchutan_lordd"
+        assert set(saved["genus"]) == {"Cogni", "Fera"}
+        assert saved_inventories[-1]["genus"] == saved["genus"]
+        capture = {"genus": "Cogni", "level": 1,
+                   "lines": [{"slot": 1, "stat": "Back Attack", "value": "13"}]}
+        request = urllib.request.Request(
+            base + "/api/genus/ocr-draft", json.dumps({"capture": capture}).encode(),
+            {"Content-Type": "application/json", "Origin": base})
+        queued = json.loads(urllib.request.urlopen(request, timeout=10).read())
+        assert queued["queued"] is True and queued["id"]
+        app_server._GENUS_OCR_DRAFT = None
+        pending = get("/api/genus/ocr-draft")
+        assert pending["capture"] == capture and pending["id"] == queued["id"]
+        assert get("/api/genus/ocr-draft?id=wrong")["capture"] is None
+        assert get("/api/genus/ocr-draft?consume=1&id=stale")["capture"] is None
+        assert get("/api/genus/ocr-draft")["id"] == queued["id"]
+        assert get("/api/genus/ocr-draft?consume=1&id=" + queued["id"])["capture"] == capture
+        assert get("/api/genus/ocr-draft")["capture"] is None
         cd = ClassData("sorcerer")
         hf = cd.by_name["Hellfire"]["id"]
         csv = "t,skill_id,damage\n" + "\n".join(f"{i},{hf},1000" for i in range(0, 60, 2))

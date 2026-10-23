@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aion 2 Calc — Genus capture</title>
+<link rel="stylesheet" href="/static/overlay.css">
+<link rel="stylesheet" href="/static/genus-capture.css">
+</head>
+<body class="overlay genus-capture-page">
+<div id="ov">
+  <section class="ovcard genus-capture-card pywebview-drag-region" title="Drag anywhere on the panel to move">
+    <header class="ovhd">
+      <span class="genus-capture-title" data-copy="title">Genus screen capture</span>
+      <button id="genus-close" type="button" aria-label="Close capture window" title="Close">×</button>
+    </header>
+    <p id="genus-status" class="genus-capture-status" role="status" aria-live="polite" data-copy="ready">Ready when the game's Genus Insight panel is open.</p>
+    <main class="genus-capture-main">
+      <div class="genus-capture-controls">
+        <label for="genus-language" data-copy="language">OCR language</label>
+        <select id="genus-language" aria-label="OCR language">
+          <option value="auto">Auto</option>
+          <option value="en">English</option>
+          <option value="es">Español</option>
+        </select>
+        <button id="genus-read" type="button" class="gcap-action gcap-primary" data-copy="capture">Capture and read</button>
+      </div>
+      <div id="genus-results"></div>
+      <button id="genus-send" type="button" class="gcap-action gcap-primary" disabled data-copy="send">Send to Genus editor</button>
+      <footer class="ovfoot">
+        <span class="ovbrand">Aion 2 Calc</span>
+        <span data-copy="privacy">Local capture · review before sending</span>
+      </footer>
+    </main>
+  </section>
+</div>
+<script src="/static/genus-capture.js"></script>
+</body>
+</html>

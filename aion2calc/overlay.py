@@ -11,6 +11,7 @@ import os
 import sys
 import threading
 import time
+import urllib.parse
 import webbrowser
 
 from .overlay_health import RESTART_EXIT_CODE, BlankDetector, HealPolicy, OverlayLog
@@ -546,6 +547,63 @@ class _OverlayAPI:
                         parsed.append((l, t, rt, b))
         self._interactive = tuple(parsed)
 
+    def capture_genus(self, language="auto"):
+        """Capture one visible game-window frame and read its Genus panel locally."""
+        import io
+        from PIL import Image
+
+        backend = native_overlay()
+        if not isinstance(backend, _Windows):
+            raise RuntimeError("Genus screen capture requires the native Windows overlay.")
+        game = backend.game_window()
+        if game is None or game.minimized:
+            raise RuntimeError("Open AION 2 before capturing Genus Insight.")
+        left, top, width, height = game.bounds
+        if width < 900 or height < 500:
+            raise RuntimeError("Make the game window at least 900 × 500 pixels for OCR.")
+        try:
+            from mss import mss
+        except ImportError as exc:
+            raise RuntimeError("Install the Genus OCR support with: python -m pip install -e \".[genus-ocr]\"") from exc
+
+        hwnd = self._window.native.Handle.ToInt64()
+        self._on_ui(lambda: backend.user32.ShowWindow(hwnd, 0))
+        try:
+            time.sleep(0.15)
+            with mss() as screen:
+                frame = screen.grab({"left": left, "top": top, "width": width, "height": height})
+            image = Image.frombytes("RGB", frame.size, frame.rgb)
+            output = io.BytesIO()
+            image.save(output, format="PNG")
+        finally:
+            self._on_ui(lambda: backend.user32.ShowWindow(hwnd, 4))
+        from .app.genus_ocr import analyze
+        return analyze(output.getvalue(), language)
+
+    def close_genus_capture(self):
+        """Close the standalone Genus capture window."""
+        window = self._window
+        if window is not None:
+            self._on_ui(window.destroy)
+        return True
+
+    def resize_genus_capture(self, height):
+        """Fit the compact Genus panel to its current reviewed content."""
+        if isinstance(height, bool) or not isinstance(height, int):
+            raise ValueError("Genus capture window height must be an integer.")
+        window = self._window
+        if window is not None:
+            self._on_ui(lambda: window.resize(440, max(150, min(height, 760))))
+        return True
+
+    def set_genus_capture_opacity(self, value=0.72):
+        """Keep the Genus card translucent over the game, like the combat overlay."""
+        opacity = max(0.2, min(1.0, float(value)))
+        window = self._window
+        if window is not None:
+            self._on_ui(lambda: setattr(window.native, "Opacity", opacity))
+        return True
+
     def _on_ui(self, callback):
         from System import Action
         native = self._window.native
@@ -994,17 +1052,38 @@ def main(argv=None) -> int:
     ap.add_argument("--height", type=int, default=120)
     a = ap.parse_args(argv)
     url = a.url or _default_url()
+    genus_capture = urllib.parse.urlsplit(url).path.rstrip("/") == "/genus-capture"
     # The overlay URL is the app's own /overlay page (optionally ?view=party, or ?view=radar for the
     # Hidden Cube radar's own small window); its base is the app to watch, derived without the path/query.
     app_base = url.split("/overlay")[0] if "/overlay" in url else None
-    prefs = _overlay_prefs()
     party = "party" if "view=party" in url else "radar" if "view=radar" in url else "meter"
+    prefs = None if genus_capture else _overlay_prefs()
     try:
         import webview
-    except Exception:
+    except Exception as err:
+        if genus_capture:
+            OverlayLog(_log_path(), "genus-capture").write(
+                f"startup failed: pywebview could not be imported: {type(err).__name__}: {err}")
+            return 1
         webbrowser.open(url)
         return 0
     try:
+        if genus_capture:
+            api = _OverlayAPI()
+            api.url = url
+            api.log = OverlayLog(_log_path(), "genus-capture")
+            api.log.write(f"started (pid {os.getpid()})")
+            window = webview.create_window("Aion 2 Calc — Genus Capture", url,
+                                           width=440, height=180, min_size=(350, 150),
+                                           resizable=True, on_top=True, background_color="#1b202a",
+                                           js_api=api, focus=True, frameless=True, easy_drag=False,
+                                           shadow=False)
+            window.events.loaded += lambda: api.log.write("window loaded")
+            window.events.shown += lambda: api.log.write("window shown")
+            window.events.shown += lambda: api.set_genus_capture_opacity(0.72)
+            api._window = window
+            webview.start(gui="edgechromium" if sys.platform == "win32" else None)
+            return 0
         api = _OverlayAPI(min_width=180 if party == "radar" else 260)
         api.url = url
         api.log = OverlayLog(_log_path(), "overlay" if party == "meter" else f"overlay[{party}]")
@@ -1024,6 +1103,17 @@ def main(argv=None) -> int:
             api.log.write("ending so the app starts the overlay again")
             return RESTART_EXIT_CODE
     except Exception as err:
+        message = f"startup failed: {type(err).__name__}: {err}"
+        if genus_capture:
+            try:
+                api.log.write(message)
+            except (NameError, AttributeError):
+                OverlayLog(_log_path(), "genus-capture").write(message)
+            return 1
+        try:
+            api.log.write(message)
+        except (NameError, AttributeError):
+            OverlayLog(_log_path()).write(message)
         print(f"Could not open the overlay ({type(err).__name__}: {err}); using the browser instead.")
         webbrowser.open(url)
     return 0

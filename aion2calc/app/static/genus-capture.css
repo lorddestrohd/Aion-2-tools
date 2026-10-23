@@ -1,0 +1,54 @@
+html, body { width: 100%; height: auto; min-height: 0; overflow: hidden; }
+body.genus-capture-page { min-height: 0; background: transparent !important; color: #eceae3; }
+#ov { width: 100%; height: auto; max-width: 440px; margin: 0 auto; padding: 0; }
+.genus-capture-card { width: 100%; height: auto; max-width: none; min-height: 0; flex-wrap: nowrap;
+  flex-direction: column; padding: 8px 10px 7px; border: 1px solid rgba(255,255,255,.1);
+  border-radius: 12px; background: rgb(27,32,42); box-shadow: 0 8px 24px rgba(0,0,0,.3); cursor: grab; }
+.genus-capture-card > * { flex: 0 0 auto; }
+.genus-capture-card .ovhd { width: 100%; gap: 6px; margin: 0; }
+.genus-capture-title { flex: 0 0 auto; color: var(--ov-header-color, #e8cf8e); font-weight: 700;
+  white-space: nowrap; }
+.genus-capture-status { width: 100%; margin: 0 0 6px; overflow: hidden; color: #8fb3b4; font-size: 10px;
+  line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; cursor: grab; }
+.genus-capture-main { display: flex; flex: 0 0 auto; flex-direction: column; min-height: 0; width: 100%; gap: 6px; }
+.genus-capture-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; color: #9aa3b5; font-size: 10.5px; }
+.genus-capture-controls label { white-space: nowrap; }
+.genus-capture-controls select, .genus-capture-row input, .genus-capture-meta input, .genus-capture-meta select {
+  min-width: 0; height: 23px; padding: 2px 5px; border: 1px solid rgba(255,255,255,.12);
+  border-radius: 5px; background: rgba(255,255,255,.06); color: #eceae3; font: inherit; }
+.genus-capture-controls select { flex: 0 1 108px; }
+.gcap-action { min-height: 24px; padding: 3px 8px; border: 1px solid rgba(255,255,255,.12);
+  border-radius: 6px; background: rgba(255,255,255,.06); color: #cdd6e6; font: 600 10.5px/1.35 "Segoe UI",system-ui,sans-serif; cursor: pointer; }
+.gcap-action:hover:not(:disabled) { border-color: rgba(255,255,255,.25); background: rgba(255,255,255,.1); color: #fff; }
+.gcap-action:focus-visible, #genus-close:focus-visible { outline: 2px solid #e8cf8e; outline-offset: 1px; }
+.gcap-action:disabled { opacity: .5; cursor: default; }
+.gcap-primary { border-color: rgba(233,203,128,.45); background: rgba(233,203,128,.12); color: #f3dea0; }
+#genus-results { display: flex; flex: 0 0 auto; flex-direction: column; gap: 5px; min-height: 0; max-height: 420px; overflow: auto; padding-right: 2px; }
+.genus-capture-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 10px; color: #9aa3b5; font-size: 10.5px; }
+.genus-capture-meta label { display: flex; align-items: center; gap: 5px; }
+.genus-capture-meta select { width: 94px; }
+.genus-capture-meta input { width: 54px; }
+.genus-capture-row { display: grid; grid-template-columns: 38px minmax(0,1fr) 76px; align-items: center; gap: 5px;
+  min-height: 29px; padding: 3px 6px; border: 1px solid rgba(255,255,255,.06);
+  border-radius: 7px; background: rgba(255,255,255,.045); font-size: 10.5px; }
+.genus-capture-row strong { color: #9aa3b5; font-size: 10px; }
+.genus-capture-row input { width: 100%; }
+.genus-capture-row input:focus, .genus-capture-meta input:focus, .genus-capture-meta select:focus {
+  border-color: rgba(233,203,128,.65); outline: none; }
+.genus-capture-review { margin: 0; color: #7f8aa3; font-size: 10px; }
+#genus-ocr-text { max-height: 100px; margin: 4px 0 0; overflow: auto; overflow-wrap: anywhere; white-space: pre-wrap;
+  color: #9aa3b5; font: 10px/1.4 "Segoe UI",system-ui,sans-serif; user-select: text; }
+#genus-send { align-self: flex-start; }
+.genus-capture-card .ovfoot { width: 100%; justify-content: space-between; margin-top: 0; padding-top: 5px; font-size: 9px; }
+.genus-capture-card .ovbrand { color: #b9984f; }
+#genus-close { flex: 0 0 auto; margin-left: 2px; padding: 1px 6px; border: 1px solid transparent;
+  border-radius: 5px; background: transparent; color: #8e97ad; font: 600 14px/1 "Segoe UI",system-ui,sans-serif; cursor: pointer; }
+#genus-close:hover { border-color: rgba(255,255,255,.12); background: rgba(255,255,255,.06); color: #f1f3f8; }
+button, input, select, textarea, label, summary { cursor: default; }
+button { cursor: pointer; }
+@media (max-width: 380px) {
+  .genus-capture-card { padding-inline: 7px; }
+  .genus-capture-controls { gap: 4px; }
+  .genus-capture-controls label { flex-basis: 100%; }
+  .genus-capture-row { grid-template-columns: 34px minmax(0,1fr) 64px; gap: 4px; }
+}

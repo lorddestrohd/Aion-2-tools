@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -13,29 +13,55 @@
 <body>
 <a class="skip-link" href="#app">Skip to content</a>
 <header class="topbar">
-  <div class="brand"><img src="/static/logo.png" alt="">Aion 2 Calc <small>AION 2 build planner &amp; combat analyzer</small></div>
-  <nav class="nav">
-    <a href="#/meter" data-page="meter">Live Meter</a>
-    <a href="#/planner" data-page="planner">Planner</a>
-    <a href="#/builds" data-page="builds">Builds</a>
-    <a href="#/character" data-page="character">My Character</a>
-    <a href="#/gear" data-page="gear">Gear &amp; Advice</a>
-    <a href="#/history" data-page="history">Saved Results</a>
-    <a href="#/combat" data-page="combat">Combat Logs</a>
-    <a href="#/raid" data-page="raid">Raid Planner</a>
-    <a href="#/database" data-page="database">Database</a>
-    <a href="#/maps" data-page="maps">Maps</a>
-    <a href="#/crafting" data-page="crafting">Crafting</a>
-    <a href="#/timers" data-page="timers">Timers</a>
-    <a href="#/news" data-page="news">News</a>
+  <a class="brand" href="#/home" aria-label="Aion 2 Calc — home"><img src="/static/logo.png" alt="">Aion 2 Calc</a>
+  <nav class="nav" aria-label="Main navigation">
+    <a href="#/home" data-page="home" class="nav-home">Home</a>
+    <details class="nav-group" data-nav-group="build">
+      <summary>Character &amp; builds</summary><div class="nav-menu">
+        <a href="#/character" data-page="character">My Character</a>
+        <a href="#/gear" data-page="gear">Gear &amp; Advice</a>
+        <a href="#/planner" data-page="planner">Planner</a>
+        <a href="#/builds" data-page="builds">Builds</a>
+        <a href="#/history" data-page="history">Saved Results</a>
+      </div>
+    </details>
+    <details class="nav-group" data-nav-group="combat">
+      <summary>Combat</summary><div class="nav-menu">
+        <a href="#/meter" data-page="meter">Live Meter</a>
+        <a href="#/combat" data-page="combat">Combat Logs</a>
+        <a href="#/raid" data-page="raid">Raid Planner</a>
+        <a href="#/timers" data-page="timers">Timers</a>
+      </div>
+    </details>
+    <details class="nav-group" data-nav-group="world">
+      <summary>Game tools</summary><div class="nav-menu">
+        <a href="#/database" data-page="database">Database</a>
+        <a href="#/maps" data-page="maps">Maps</a>
+        <a href="#/crafting" data-page="crafting">Crafting</a>
+        <a href="#/news" data-page="news">News</a>
+      </div>
+    </details>
     <a href="#/settings" data-page="settings">Settings</a>
   </nav>
-  <div class="syncpill" id="syncpill"><span class="dot"></span><span>database</span></div>
-  <a id="update" class="chip gold" target="_blank" rel="noopener" hidden></a>
-  <a class="iconbtn" id="discord" href="https://discord.gg/9y6zkUyvBv" target="_blank" rel="noopener" title="Join the aion2calc Discord" aria-label="Join the aion2calc Discord">&#128172;</a>
-  <button class="btn small" id="app-screenshot" data-html2canvas-ignore>Application screenshot</button><span id="app-screenshot-status" class="small muted" role="status" data-html2canvas-ignore></span>
-  <button class="iconbtn" id="theme" title="Theme: follow the computer">◐</button>
-  <button class="btn small" id="quit" title="Stop the app">Quit</button>
+  <div class="topbar-tools">
+    <div class="syncpill" id="syncpill" title="Local game database status"><span class="dot"></span><span>database</span></div>
+    <a id="update" class="chip gold" target="_blank" rel="noopener" hidden></a>
+    <label class="language-picker" for="language-select"><span data-language-label>Idioma</span>
+      <select id="language-select" aria-label="Language">
+        <option value="es">Español</option>
+        <option value="en">English</option>
+      </select>
+    </label>
+    <details class="app-menu">
+      <summary>App</summary><div class="app-menu-items">
+        <button class="btn small" id="app-screenshot" data-html2canvas-ignore>Application screenshot</button>
+        <span id="app-screenshot-status" class="small muted" role="status" data-html2canvas-ignore></span>
+        <a class="btn small" id="discord" href="https://discord.gg/9y6zkUyvBv" target="_blank" rel="noopener">Help &amp; community</a>
+        <button class="btn small" id="theme" title="Theme: follow the computer">◐ Theme</button>
+        <button class="btn small" id="quit" title="Stop the app">Quit</button>
+      </div>
+    </details>
+  </div>
 </header>
 <main id="app"></main>
 <script src="/static/raid.js"></script>
@@ -55,6 +81,7 @@
 <script src="/static/event-schedule.js"></script><script src="/static/timers.js"></script>
 <script src="/static/genus-editor.js"></script>
 <script src="/static/html2canvas.min.js"></script><script src="/static/screenshot.js"></script>
+<script src="/static/i18n.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

@@ -5,6 +5,8 @@
 
 A desktop companion and community website for **AION 2**: optimize your build, review combat, and plan encounters.
 
+Para iniciar el recomendador PvE local en español, consulta [INICIO-ES.md](./INICIO-ES.md).
+
 [Download the app](https://github.com/sam-t-anderson/Aion-2-tools/releases/latest) · [Open the website](https://sam-t-anderson.github.io/Aion-2-tools/) · [Release notes](https://github.com/sam-t-anderson/Aion-2-tools/releases) · [Discord](https://discord.gg/9y6zkUyvBv)
 
 ## Install

@@ -237,6 +237,34 @@ def test_local_calibration_merges_community(home):
     assert not engine.SKILL_MULT
 
 
+def test_advice_report_does_not_call_community_calibration_personal(tmp_path):
+    from aion2calc.plan.advisor import write_markdown
+
+    advice = {
+        "character": {"name": "Test", "server": "Marchutan", "class": "assassin", "level": 45},
+        "dps": 1000,
+        "calibrated": True,
+        "calibration": ["No fights matched to an imported character yet.",
+                        "community calibration from your log server: 20 fights"],
+        "top": [],
+        "skill_specialties": [],
+        "equip": {"gain": 0, "changes": []},
+        "goals": {"slots": {}},
+        "upgrade_path": {"steps": []},
+        "arcana": {"priority": [], "slots": {}},
+        "pantheon": {"per_point": [], "current": {}},
+        "genus": {"mix": {}, "lines": [], "level_order": []},
+        "rotation": {"fights": 0, "idle_share": 0, "under_cast": []},
+        "fights": {"count": 0},
+    }
+
+    report_path = write_markdown(advice, tmp_path)
+    report = report_path.read_text(encoding="utf-8")
+
+    assert "community calibration from your log server: 20 fights" in report
+    assert "model calibrated from your fights" not in report
+
+
 def test_titles_plan_per_slot_and_collection(home):
     from aion2calc.paths import write_user_json
     from aion2calc.plan.context import PlanContext

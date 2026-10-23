@@ -6,8 +6,9 @@ const DISCORD = "https://discord.gg/9y6zkUyvBv";
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const n0 = (x) => (x == null || isNaN(x) ? "—" : Math.round(x).toLocaleString("en-US"));
-const pct = (x, d = 1) => (x == null || isNaN(x) ? "—" : (100 * x).toFixed(d) + "%");
+const appLocale = () => A2I18n.language() === "es" ? "es-ES" : "en-US";
+const n0 = (x) => (x == null || isNaN(x) ? "—" : Math.round(x).toLocaleString(appLocale()));
+const pct = (x, d = 1) => (x == null || isNaN(x) ? "—" : (100 * x).toLocaleString(appLocale(), { minimumFractionDigits: d, maximumFractionDigits: d }) + "%");
 // Every date the app shows carries the time of day, in the computer's clock: 2026-10-23 15:04:05.
 const whenAt = (x) => { if (x == null || x === "") return "—"; const d = new Date(x); if (!Number.isFinite(d.getTime())) return "—"; const p = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
 const clockAt = (x) => { const s = whenAt(x); return s.length > 11 ? s.slice(11) : s; };   // the time of day alone, 15:04:05
@@ -1372,12 +1373,7 @@ async function pageMeter() {
     };
   }
   const meterMountedAt = Date.now();
-  // The meter is the DEFAULT route, so at launch location.hash is "" (not "#/meter") while this
-  // page is already mounted. Match the router's own rule (empty hash => "meter"); otherwise the
-  // first poll tick returns before rescheduling and the loop dies, leaving the Start/Stop button
-  // stuck on its pre-auto-start render until the user switches tabs (which sets the hash and
-  // re-mounts). That dead loop — not the poll cadence — was why the button showed "Start" at launch.
-  const onMeterPage = () => (location.hash.replace(/^#\//, "") || "meter").split("/")[0] === "meter";
+  const onMeterPage = () => (location.hash.replace(/^#\//, "") || "home").split("/")[0] === "meter";
   const poll = async () => {
     if (!onMeterPage()) return;
     try { const result=await meterStatus(); if(onMeterPage()) renderMeter(result); }
@@ -1506,7 +1502,7 @@ async function pageHistory(){
 }
 
 // ------------------------------------------------------------- gear & advice
-const sp = (x) => (x == null ? "—" : (x >= 0 ? "+" : "") + (100 * x).toFixed(1) + "%");
+const sp = (x) => (x == null ? "—" : (x >= 0 ? "+" : "") + (100 * x).toLocaleString(appLocale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + "%");
 function renderAdviceProgress(){
   const box=$('#gadvice-progress'),job=S.gear.adviceJob;if(!box)return;
   const current=job&&job.key===S.gear.key,busy=current&&job.status==='running';
@@ -1570,8 +1566,16 @@ async function pageGear() {
       if(st.key===inventoryKey&&genusRoot.isConnected){st.inv=saved;st.adv=null;
       $('#gout').innerHTML='<p class="note">Genus lines saved. Run advice again to update recommendations.</p>';}
       return saved.genus||{};
-    });
+    },async()=>{const pending=await api('/api/genus/ocr-draft');return pending?.capture?{...pending.capture,id:pending.id}:null;},
+    async captureId=>await api('/api/genus/ocr-draft?consume=1&id='+encodeURIComponent(captureId)),
+    async()=>await api('/api/genus/capture',{character:inventoryKey}));
   };
+  if(st.genusFocusRefresh)window.removeEventListener("focus",st.genusFocusRefresh);
+  st.genusFocusRefresh=()=>{
+    if(document.visibilityState!=="visible"||!$("#ginv")||genusEditor?.isDirty())return;
+    showInv().catch(error=>console.error("Could not refresh inventory after Genus capture:",error));
+  };
+  window.addEventListener("focus",st.genusFocusRefresh);
   $("#gchar").onchange = () => { st.adv = null; $("#gout").innerHTML = ""; key();renderAdviceProgress();showInv(); };
   $("#gadv").onclick = async () => {
     if(st.adviceJob?.status==='running')return;
@@ -1995,6 +1999,7 @@ async function pageSettings() {
   const overlayColors=ui.overlay_text_colors || {}, overlayText=key=>/^#[0-9a-f]{6}$/i.test(overlayColors[key] || '')?overlayColors[key]:OVERLAY_TEXT_DEFAULTS[key];
   app().innerHTML = win("Settings", "", `
     <div class="settabs" role="tablist">${[["appearance","Appearance"],["overlay","Overlay"],["meter","Meter"],["server","Server"],["backup","Profiles &amp; backup"],["system","App &amp; data"]].map(([g,l])=>`<button type="button" data-settab="${g}">${l}</button>`).join("")}</div>
+    <div class="setrow" data-g="appearance"><div class="lbl">Language</div><div><select id="language-setting" aria-label="Language"><option value="es">Español</option><option value="en">English</option></select><p class="small muted">Choose the language used by the app interface. This preference stays in this browser.</p></div></div>
     <div class="setrow" data-g="appearance"><div class="lbl">Theme</div><div><div class="seg">${THEMES.map((x) => `<button data-th="${x}" class="${x === t ? "on" : ""}">${{ system: "Follow computer", light: "Light", dark: "Dark" }[x]}</button>`).join("")}</div></div></div>
     <div class="setrow" data-g="appearance"><div class="lbl">Accent colour</div><div><div class="seg">${ACCENTS.map((x) => `<button data-accent-btn="${x}" class="${x === getAccent() ? "on" : ""}">${x[0].toUpperCase() + x.slice(1)}</button>`).join("")}</div><p class="small muted">Recolours the app's accent on top of your light/dark theme.</p></div></div>
     <div class="setrow" data-g="system"><div class="lbl">Open as its own window</div><div><label><input type="checkbox" id="appwin" ${ui.app_window !== false ? "checked" : ""}> start in a separate app window (Edge or Chrome) instead of a browser tab; closing it stops the app</label><p class="small muted">The window opens at 1920×1080, or as large as the screen allows when it is smaller, centred; it is not maximized, so you can place and size it.</p></div></div>
@@ -2007,7 +2012,7 @@ async function pageSettings() {
     <div class="setrow" data-g="system"><div class="lbl">Your data</div><div><code>${esc(s.home)}</code> <button class="btn small" data-open="data">Open folder</button> <button class="btn small" data-open="logs">Combat logs</button> <button class="btn small" data-open="results">Advice &amp; results</button></div></div>
     <div class="setrow" data-g="server"><div class="lbl">Log server</div><div><div class="row"><input id="surl" type="text" placeholder="${srv.is_default && srv.url ? esc(srv.url) + " (default)" : "https://logs.example.com"}" value="${srv.is_default ? "" : esc(srv.url || "")}" style="width:320px">
       <input id="skey" type="password" placeholder="${srv.has_key ? "key saved" : "upload key (optional)"}" style="width:229px">
-      <select id="svis" title="Public uploads are listed in the community logs and count in the rankings; unlisted ones open only with their link; private ones need the secret link">${["public", "unlisted", "private"].map((v) => `<option ${v === (srv.visibility || "public") ? "selected" : ""}>${v}</option>`).join("")}</select>
+      <select id="svis" title="Public uploads are listed in the community logs and count in the rankings; unlisted ones open only with their link; private ones need the secret link">${["public", "unlisted", "private"].map((v) => `<option value="${v}" ${v === (srv.visibility || "public") ? "selected" : ""}>${v}</option>`).join("")}</select>
       <button class="btn small" id="ssave">Save</button><button class="btn small" id="scheck">Check saved server</button><span id="smsg" class="small muted"></span></div>
       ${srv.is_default && srv.url ? '<div class="small muted" style="margin-top:4px">Using the community default server. Enter your own above to override it.</div>' : ""}</div></div>
     <div class="setrow" data-g="server"><div class="lbl">Community stats</div><div><label><input type="checkbox" id="community-heartbeat" ${ui.community_heartbeat !== false?'checked':''}> Contribute to the anonymous daily-active-meters count (on by default)</label>
@@ -2318,6 +2323,7 @@ async function pageSettings() {
   $('#ov-retro')&&($('#ov-retro').onchange=()=>saveFont('overlay_text_retro',$('#ov-retro').checked));
   // Per-element font overrides edit one entry of the overlay_text_fonts map at a time.
   const overlayFonts={...(ui.overlay_text_fonts&&typeof ui.overlay_text_fonts==='object'?ui.overlay_text_fonts:{})};
+  $('#language-setting').value=A2I18n.language();
   const feEl=$('#ov-fe-el'),feFam=$('#ov-fe-fam'),feSize=$('#ov-fe-size'),feWeight=$('#ov-fe-weight'),feMsg=$('#ov-fe-msg');
   if(feEl){
     const feLoad=()=>{const e=overlayFonts[feEl.value]||{};feFam.value=e.family||'';feSize.value=Number.isFinite(e.scale)?e.scale:'';feWeight.value=Number.isFinite(e.weight)?String(e.weight):'';};
@@ -2658,17 +2664,83 @@ async function pageBuilds(){
  buildWorkspaceView=A2BuildWorkspace.mount($("#build-workspace"),{api:communityAPI,localEvaluation:true,evaluate:doc=>api("/api/build/evaluate",doc),...(buildWorkspaceContext||{})});
  buildWorkspaceContext=null;
 }
+
+const PAGE_INFO = {
+ character: ["Character & builds", "Import your character", "Find your public profile and load your current character and equipped items.", [["My Character", "#/character"], ["Gear & Advice", "#/gear"], ["Planner", "#/planner"]], 0],
+ gear: ["Character & builds", "Equipment & recommendations", "Review your equipped items, Genus data and personalized upgrade recommendations.", [["My Character", "#/character"], ["Gear & Advice", "#/gear"], ["Planner", "#/planner"]], 1],
+ planner: ["Character & builds", "Build planner", "Compare builds and optimize stats, skills and equipment for your goals.", [["My Character", "#/character"], ["Gear & Advice", "#/gear"], ["Planner", "#/planner"]], 2],
+ builds: ["Character & builds", "Builds", "Create, compare and manage build configurations."],
+ history: ["Character & builds", "Saved results", "Return to recommendations and calculations you saved."],
+ meter: ["Combat", "Live combat meter", "Capture a fight locally, then review live damage and save the combat log."],
+ combat: ["Combat", "Combat logs", "Import, review and compare combat recordings."],
+ "combat-log": ["Combat", "Combat log details", "Review the selected recording and its encounter details."],
+ raid: ["Combat", "Raid planner", "Prepare encounter assignments and strategy with your group."],
+ timers: ["Combat", "Timers", "Track upcoming world events and field bosses."],
+ database: ["Game tools", "Game database", "Browse the local game data available to the app."],
+ maps: ["Game tools", "Maps", "Explore game maps and locations."],
+ crafting: ["Game tools", "Crafting", "Browse crafting recipes and materials."],
+ news: ["Game tools", "News", "Read the latest game and community updates."],
+ settings: ["App", "Settings", "Personalize the interface, overlay and local app behavior."]
+};
+
+function pageHeading(page) {
+ if (page === "home") return "";
+ const [section, title, description, steps, activeStep] = PAGE_INFO[page] || ["Aion 2 Calc", "Build planner", "Plan and review your character."];
+ const workflow = steps ? `<nav class="page-flow" aria-label="Character setup">${steps.map(([label, href], i) =>
+   `<a class="${i === activeStep ? "current" : ""}" href="${href}"${i === activeStep ? ' aria-current="step"' : ""}><span>${i + 1}</span>${label}</a>`).join("")}</nav>` : "";
+ return `<header class="page-heading"><div><div class="eyebrow">${section}</div><h1>${title}</h1><p>${description}</p></div>${workflow}</header>`;
+}
+
+function pageHome() {
+ app().innerHTML = `<section class="home-hero">
+   <div class="eyebrow">AION 2 · CHARACTER WORKSPACE</div>
+   <h1>Welcome to Aion 2 Calc</h1>
+   <p>Import your character, review your equipment and find your next upgrade — or jump straight into combat tools.</p>
+   <a class="btn primary" href="#/character">Import a character <span aria-hidden="true">→</span></a>
+ </section>
+ <section class="home-section"><div class="home-section-title"><div><h2>Character &amp; builds</h2><p>From your current gear to a more optimized build.</p></div></div>
+   <div class="home-cards">
+     <a class="home-card featured" href="#/character"><span class="home-step">01 · <span>START HERE</span></span><strong>My Character</strong><span>Load your public profile and equipped items.</span><span class="home-link">Import character <span aria-hidden="true">→</span></span></a>
+     <a class="home-card" href="#/gear"><span class="home-step">02 · <span>REVIEW</span></span><strong>Gear &amp; Advice</strong><span>Inspect Genus and see what to improve next.</span><span class="home-link">View recommendations <span aria-hidden="true">→</span></span></a>
+     <a class="home-card" href="#/planner"><span class="home-step">03 · <span>OPTIMIZE</span></span><strong>Build Planner</strong><span>Compare stats and plan your target build.</span><span class="home-link">Open planner <span aria-hidden="true">→</span></span></a>
+   </div>
+ </section>
+ <section class="home-section"><div class="home-section-title"><div><h2>Combat</h2><p>Capture, inspect and plan around your encounters.</p></div></div>
+   <div class="home-cards home-cards-compact">
+     <a class="home-card" href="#/meter"><strong>Live Meter</strong><span>Capture a fight and review damage in real time.</span></a>
+     <a class="home-card" href="#/combat"><strong>Combat Logs</strong><span>Import recordings and analyze encounters.</span></a>
+     <a class="home-card" href="#/raid"><strong>Raid Planner</strong><span>Prepare a strategy with your group.</span></a>
+     <a class="home-card" href="#/timers"><strong>Timers</strong><span>Keep track of events and field bosses.</span></a>
+   </div>
+ </section>
+ <section class="home-section"><div class="home-section-title"><div><h2>Game tools</h2><p>Reference data and useful utilities.</p></div></div>
+   <div class="home-links"><a href="#/database">Database</a><a href="#/maps">Maps</a><a href="#/crafting">Crafting</a><a href="#/news">News</a><a href="#/builds">Saved builds</a><a href="#/history">Saved results</a><a href="#/settings">Settings</a></div>
+ </section>`;
+}
+
 async function route() {
   if(workshopView){workshopView.dispose();workshopView=null;}
   if(buildWorkspaceView){buildWorkspaceView.dispose();buildWorkspaceView=null;}
   if(eventTimerView){eventTimerView.dispose();eventTimerView=null;}
-  const page = (location.hash.replace(/^#\//, "") || "meter").split("/")[0];
+  const page = (location.hash.replace(/^#\//, "") || "home").split("/")[0];
   app().classList.toggle("workspace-wide", page === "crafting" || page === "builds" || page === "maps" || page === "combat-log");
   app().classList.toggle("logs-zoom", page === "combat" || page === "combat-log");   // 125%, as on the website
-  $$(".nav a").forEach((a) => a.classList.toggle("on", a.dataset.page === (page === "combat-log" ? "combat" : page)));
+  const activePage = page === "combat-log" ? "combat" : page;
+  $$(".nav a").forEach((a) => {
+    const active = a.dataset.page === activePage;
+    a.classList.toggle("on", active);
+    if (active) a.setAttribute("aria-current", "page");
+    else a.removeAttribute("aria-current");
+  });
+  $$(".nav-group").forEach((group) => {
+    const active = [...group.querySelectorAll("a")].some((a) => a.dataset.page === activePage);
+    group.open = false;
+    group.classList.toggle("active", active);
+  });
   if(page!=="combat-log" && S.combat.review){S.combat.review.dispose();S.combat.review=null;}
   try {
-    if (page === "character") await pageCharacter();
+    if (page === "home") pageHome();
+    else if (page === "character") await pageCharacter();
     else if (page === "history") await pageHistory();
     else if (page === "gear") await pageGear();
     else if (page === "settings") await pageSettings();
@@ -2683,6 +2755,7 @@ async function route() {
     else if (page === "news") await pageNews();
     else await pagePlanner();
   } catch (e) { app().innerHTML = `${page==="combat-log"?'<p><a class="btn small" href="#/combat">← Back to combat logs</a></p>':""}<div class="note">${esc(e.message)}</div>`; }
+  if (page !== "home") app().insertAdjacentHTML("afterbegin", pageHeading(page));
 }
 window.addEventListener("hashchange", route);
 

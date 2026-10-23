@@ -23,7 +23,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from ..paths import home, list_names, logs_dir, results_dir
+from ..paths import home, list_names, logs_dir, results_dir, user_data, write_user_json as atomic_write_user_json
 from . import views
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -35,6 +35,22 @@ JOBS: dict[str, dict] = {}
 _jobs_lock = threading.RLock()
 _MODEL_LOCK = threading.RLock()
 _COMPARISON_JOBS: dict[tuple[str, str], str] = {}
+_GENUS_OCR_DRAFT: dict | None = None
+_GENUS_OCR_DRAFT_LOCK = threading.Lock()
+
+
+def _load_genus_ocr_draft() -> dict | None:
+    path = user_data() / "genus-ocr-draft.json"
+    try:
+        draft = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    if not isinstance(draft, dict) or not isinstance(draft.get("created"), (int, float)):
+        raise ValueError("The saved Genus capture draft is malformed.")
+    if time.time() - draft["created"] > 1800:
+        path.unlink(missing_ok=True)
+        return None
+    return draft
 
 
 def _model_action(fn):
@@ -525,6 +541,27 @@ def inventory_post(path: str, body: dict) -> dict:
     return inv
 
 
+def save_genus_capture(character: str, capture: dict) -> dict:
+    """Save a reviewed screen capture into one character's inventory, preserving other genera."""
+    if not isinstance(character, str) or not character or len(character) > 200:
+        raise ValueError("Choose a valid character before saving Genus capture.")
+    from ..plan import inventory as INV
+    from ..plan.genus import validate_state
+    _, inv = _inventory(character)
+    current = validate_state(inv.get("genus") or {})
+    genus = capture.get("genus") if isinstance(capture, dict) else None
+    if genus not in ("Cogni", "Fera", "Natura", "Varian", "Special"):
+        raise ValueError("Choose a valid genus before saving the capture.")
+    received = validate_state({genus: {
+        "level": capture.get("level"),
+        "lines": capture.get("lines"),
+    }})
+    current[genus] = received[genus]
+    inv["genus"] = validate_state(current)
+    INV.save(inv)
+    return {"saved": True, "character": character, "genus": inv["genus"]}
+
+
 # --------------------------------------------------------------------- server
 class Handler(BaseHTTPRequestHandler):
     server_version = "aion2calc"
@@ -552,8 +589,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _body(self) -> dict:
         n = int(self.headers.get("Content-Length") or 0)
-        if self.path.split("?", 1)[0] == "/api/screenshot" and not 0 <= n <= 28 * 1024 * 1024:
-            raise ValueError("Application PNG request exceeds 28 MiB.")
+        if self.path.split("?", 1)[0] in ("/api/screenshot", "/api/genus/ocr-draft") and not 0 <= n <= 28 * 1024 * 1024:
+            raise ValueError("Application image request exceeds 28 MiB.")
         return json.loads(self.rfile.read(n) or b"{}") if n else {}
 
     def do_GET(self):
@@ -575,10 +612,13 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---------------------------------------------------------------- GET
     def route_get(self, path: str, q: dict):
+        global _GENUS_OCR_DRAFT
         if path in ("/", "/index.html"):
             return self._static("index.html")
         if path == "/overlay":
             return self._static("overlay.html")
+        if path == "/genus-capture":
+            return self._static("genus-capture.html")
         if path == "/overlay-background":
             # The user's chosen overlay background photo, stored locally (never in ui.json).
             for name in ("overlay-background.png", "overlay-background.jpg"):
@@ -605,6 +645,29 @@ class Handler(BaseHTTPRequestHandler):
                                "app": "aion2calc", "version": __version__,
                                "update": update_info(fresh=bool(q.get("fresh"))), "update_state": update_state(),
                                "update_prompt": ui_settings().get("auto_update", True)})
+        if path == "/api/genus/ocr-draft":
+            port = self.server.server_address[1]
+            hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
+            if self.client_address[0] not in ("127.0.0.1", "::1") or self.headers.get("Host") not in hosts:
+                raise PermissionError("Genus OCR drafts are local to this computer.")
+            with _GENUS_OCR_DRAFT_LOCK:
+                draft = _load_genus_ocr_draft()
+                if draft is None:
+                    _GENUS_OCR_DRAFT = None
+                else:
+                    _GENUS_OCR_DRAFT = draft
+                if draft and q.get("id") and q["id"] != draft.get("id"):
+                    draft = None
+                consumed = None
+                if q.get("consume") == "1":
+                    if draft and q.get("id") and q["id"] == draft["id"]:
+                        consumed = draft
+                        _GENUS_OCR_DRAFT = None
+                        (user_data() / "genus-ocr-draft.json").unlink(missing_ok=True)
+                    draft = consumed
+            return self._json({"capture": draft["capture"] if draft else None,
+                               "created": draft["created"] if draft else None,
+                               "id": draft["id"] if draft else None})
         if path == "/api/assets":
             from ..db.assets import report
             from .image_health import report as image_report
@@ -790,6 +853,25 @@ class Handler(BaseHTTPRequestHandler):
 
     # --------------------------------------------------------------- POST
     def route_post(self, path: str, body: dict):
+        if path == "/api/genus/ocr-draft":
+            port = self.server.server_address[1]
+            allowed = {f"http://127.0.0.1:{port}", f"http://localhost:{port}", f"http://[::1]:{port}"}
+            if self.client_address[0] not in ("127.0.0.1", "::1") or self.headers.get("Origin") not in allowed:
+                raise PermissionError("Genus OCR drafts require the local application origin.")
+            capture = body.get("capture")
+            if not isinstance(capture, dict):
+                raise ValueError("Provide a reviewed Genus capture.")
+            genus = capture.get("genus")
+            from ..plan.genus import validate_state
+            clean = validate_state({genus: {"level": capture.get("level"), "lines": capture.get("lines")}})
+            normalized = {"genus": genus, **clean[genus]}
+            draft_id = uuid.uuid4().hex
+            draft = {"id": draft_id, "capture": normalized, "created": time.time()}
+            global _GENUS_OCR_DRAFT
+            with _GENUS_OCR_DRAFT_LOCK:
+                atomic_write_user_json(draft, "genus-ocr-draft.json")
+                _GENUS_OCR_DRAFT = draft
+            return self._json({"queued": True, "id": draft_id, "capture": normalized})
         if path in ("/api/screenshot", "/api/maintenance"):
             port = self.server.server_address[1]
             allowed = {f"http://127.0.0.1:{port}", f"http://localhost:{port}", f"http://[::1]:{port}"}
@@ -938,6 +1020,20 @@ class Handler(BaseHTTPRequestHandler):
             port = self.server.server_address[1]
             # Open overlay while it is open asks the overlay to reload its page (a blank one comes back).
             return self._json(launch(f"http://127.0.0.1:{port}/overlay", reload_if_open=True))
+        if path == "/api/genus/capture":
+            port = self.server.server_address[1]
+            allowed = {f"http://127.0.0.1:{port}", f"http://localhost:{port}", f"http://[::1]:{port}"}
+            if self.client_address[0] not in ("127.0.0.1", "::1") or self.headers.get("Origin") not in allowed:
+                raise PermissionError("Genus capture requires the local application origin.")
+            from .overlay_launch import launch_genus_capture
+            return self._json(launch_genus_capture(f"http://127.0.0.1:{port}/genus-capture",
+                                                   body.get("character")))
+        if path == "/api/genus/capture-save":
+            port = self.server.server_address[1]
+            allowed = {f"http://127.0.0.1:{port}", f"http://localhost:{port}", f"http://[::1]:{port}"}
+            if self.client_address[0] not in ("127.0.0.1", "::1") or self.headers.get("Origin") not in allowed:
+                raise PermissionError("Saving a Genus capture requires the local application origin.")
+            return self._json(save_genus_capture(body.get("character"), body.get("capture")))
         if path == "/api/overlay/health":
             # The overlay page's own errors, into the overlay log beside the watchdog's notes.
             if self.client_address[0] not in ("127.0.0.1", "::1"):
