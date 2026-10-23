@@ -202,8 +202,12 @@ def test_app_server_endpoints(home, monkeypatch):
         assert 'href="/static/app.css"' not in genus_html
         genus_css = urllib.request.urlopen(base + "/static/genus-capture.css", timeout=10).read().decode("utf-8")
         assert "background: transparent !important" in genus_css
-        genus_js = urllib.request.urlopen(base + "/static/genus-capture.js", timeout=10).read().decode("utf-8")
+        genus_js = urllib.request.urlopen(base + "/static/genus-capture.js", timeout=10).read().decode("utf-8").replace("\r\n", "\n")
         assert 'control.addEventListener(type, (event) => event.stopPropagation())' in genus_js
+        assert "Capture the next genus when ready." in genus_js
+        assert "Captura el siguiente genus cuando quieras." in genus_js
+        assert 'recognized = null;\n        $("#genus-results").replaceChildren();' in genus_js
+        assert 'button.disabled = !recognized;' in genus_js
         assert post_local("/api/genus/capture", {})["native"] is True
         assert post_local("/api/genus/capture", {"character": "naeu_marchutan_lordd"})["native"] is True
         assert launched == [(base + "/genus-capture", None),

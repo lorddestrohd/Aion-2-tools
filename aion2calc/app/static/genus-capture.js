@@ -24,7 +24,7 @@
       sending: "Sending reviewed Genus data to the editor…",
       sent: "Capture sent. Return to Gear & Advice to review the draft and save Genus lines.",
       saving: "Saving reviewed Genus data to the selected character…",
-      saved: "Genus data saved to the selected character. Returning to the app…",
+      savedNext: "Genus data saved. Capture the next genus when ready.",
       saveError: "Genus data was not saved: ",
       noNative: "Screen capture requires the native Windows capture window.",
       error: "Could not read Genus: ",
@@ -55,7 +55,7 @@
       sending: "Enviando los datos revisados al editor…",
       sent: "Captura enviada. Vuelve a Equipo y recomendaciones para revisar el borrador y guardar las líneas de Genus.",
       saving: "Guardando los datos revisados en el personaje seleccionado…",
-      saved: "Datos de Genus guardados en el personaje. Volviendo a la aplicación…",
+      savedNext: "Datos de Genus guardados. Captura el siguiente genus cuando quieras.",
       saveError: "No se guardaron los datos de Genus: ",
       noNative: "La captura de pantalla requiere la ventana nativa de captura en Windows.",
       error: "No se pudo leer Genus: ",
@@ -187,17 +187,16 @@
       const body = await response.json();
       if (!response.ok) throw Error(body.error || t("captureError"));
       if (targetCharacter && body.saved !== true) throw Error(t("captureError"));
-      $("#genus-status").textContent = targetCharacter ? t("saved") : t("sent");
+      $("#genus-status").textContent = targetCharacter ? t("savedNext") : t("sent");
       if (targetCharacter) {
-        window.setTimeout(() => {
-          const nativeApi = window.pywebview?.api;
-          if (typeof nativeApi?.close_genus_capture === "function") nativeApi.close_genus_capture();
-        }, 900);
+        recognized = null;
+        $("#genus-results").replaceChildren();
+        fitWindow();
       }
     } catch (error) {
       $("#genus-status").textContent = (targetCharacter ? t("saveError") : t("sendError")) + errorText(error);
     } finally {
-      if (!targetCharacter || !$("#genus-status").textContent.includes(t("saved"))) button.disabled = false;
+      button.disabled = !recognized;
     }
   };
 })();
