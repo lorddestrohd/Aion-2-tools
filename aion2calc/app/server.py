@@ -928,9 +928,12 @@ class Handler(BaseHTTPRequestHandler):
                 share.save_settings(body.get("url"), body.get("key"), body.get("visibility"))
             return self._json({k: v for k, v in st.items() if k != "key"} | {"has_key": bool(st.get("key"))})
         if path == "/api/overlay":
-            from .overlay_launch import launch, close
+            from .overlay_launch import launch, close, close_view
             if body.get("action") == "hide":
-                close()
+                # The meter overlay's Hide closes every overlay window; a companion window's Hide (the
+                # Party-DPS overlay, the radar's window) closes that window alone.
+                view = body.get("view")
+                close_view(view) if isinstance(view, str) and view in ("party", "radar") else close()
                 return self._json({"hidden": True})
             port = self.server.server_address[1]
             # Open overlay while it is open asks the overlay to reload its page (a blank one comes back).
@@ -1154,6 +1157,7 @@ class Handler(BaseHTTPRequestHandler):
             _ui_bool_flags = ("tray_on_close", "overlay_show_contribution", "overlay_show_target",
                               "overlay_show_deaths", "overlay_show_enemy_hp", "overlay_show_ttk",
                               "overlay_show_cooldowns", "overlay_show_break_gauge", "overlay_show_odyle",
+                              "overlay_show_shugo_keys", "character_auto_open", "character_auto_refresh",
                               "meter_reset_after_battle", "meter_reset_on_boss_start", "meter_show_dummy_parse", "overlay_show_combat_power",
                               "overlay_only_in_combat", "overlay_auto_expand",
                               "overlay_resizable", "overlay_snap_edge", "overlay_expand_up",
@@ -1168,6 +1172,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError(f"{flag} must be true or false")
             _ui_int_ranges = (("meter_reset_delay", 1, 120), ("meter_max_records", 1, 500),
                               ("meter_dummy_record_seconds", 5, 3600),
+                              ("app_text_scale", 70, 150),                 # the app's text size, in percent
                               ("meter_log_cache_mb", 0, 1048576),   # 0 disables pruning; up to 1 TiB
 
                               ("overlay_max_players", 1, 24), ("overlay_width", 260, 800),
@@ -1182,7 +1187,8 @@ class Handler(BaseHTTPRequestHandler):
                               # Remembered overlay screen positions (per overlay). Wide
                               # bounds cover multi-monitor layouts (can be negative).
                               ("overlay_pos_x", -30000, 30000), ("overlay_pos_y", -30000, 30000),
-                              ("overlay_party_pos_x", -30000, 30000), ("overlay_party_pos_y", -30000, 30000))
+                              ("overlay_party_pos_x", -30000, 30000), ("overlay_party_pos_y", -30000, 30000),
+                              ("overlay_radar_pos_x", -30000, 30000), ("overlay_radar_pos_y", -30000, 30000))
             for key, lo, hi in _ui_int_ranges:
                 if key in body:
                     if not isinstance(body[key], int) or isinstance(body[key], bool) or not lo <= body[key] <= hi:
@@ -1190,7 +1196,9 @@ class Handler(BaseHTTPRequestHandler):
             for key in ("event_region", "event_group"):   # Timers-page region, mirrored for the overlay
                 if key in body and not (isinstance(body[key], str) and len(body[key]) <= 32):
                     raise ValueError(f"{key} must be a short string")
-            for key, allowed in (("rtss_metric", ("dps", "hps", "dtps")), ("rtss_style", ("plain", "colored"))):
+            from .settings_backup import APP_PAGES
+            for key, allowed in (("rtss_metric", ("dps", "hps", "dtps")), ("rtss_style", ("plain", "colored")),
+                                 ("app_default_page", APP_PAGES)):
                 if key in body and body[key] not in allowed:
                     raise ValueError(f"{key} must be one of " + ", ".join(allowed))
             if "hotkeys" in body:
@@ -1198,7 +1206,7 @@ class Handler(BaseHTTPRequestHandler):
                 cur["hotkeys"] = _hotkeys.clean_hotkeys(body["hotkeys"])
             # Remembered monitor layout for each overlay (machine-specific; restores the
             # position by the monitor layout). A list of [left, top, width, height] rects.
-            for key in ("overlay_pos_layout", "overlay_party_pos_layout"):
+            for key in ("overlay_pos_layout", "overlay_party_pos_layout", "overlay_radar_pos_layout"):
                 if key in body:
                     layout = body[key]
                     if not (isinstance(layout, list) and len(layout) <= 16 and all(
@@ -1209,6 +1217,7 @@ class Handler(BaseHTTPRequestHandler):
                     cur[key] = layout
             cur.update({k: v for k, v in body.items() if k in ("app_window", "auto_update",
                                                                "event_region", "event_group", "rtss_metric", "rtss_style",
+                                                               "app_default_page",
                                                                *(k for k, _, _ in _ui_int_ranges), *_ui_bool_flags)})
             write_user_json(cur, "ui.json")
             if any(k.startswith("rtss_") for k in body):
@@ -1219,6 +1228,12 @@ class Handler(BaseHTTPRequestHandler):
             if any(k.startswith("radar_") for k in body):
                 try:
                     radar_sync()
+                except Exception:
+                    traceback.print_exc()
+            if "overlay_party_enabled" in body:        # the Party-DPS window follows its setting while the overlay is open
+                try:
+                    from .overlay_launch import sync_companions
+                    sync_companions()
                 except Exception:
                     traceback.print_exc()
             if any(k.startswith("meter_") for k in body):
@@ -1430,8 +1445,15 @@ def cube_radar():
 
 
 def radar_sync(stop: bool = False) -> None:
-    """Start or stop listening to match the setting (Windows only; a no-op elsewhere)."""
+    """Start or stop listening to match the setting (Windows only; a no-op elsewhere), and open or close
+    the radar's own overlay window with it while the meter overlay is open."""
     from . import radar
+    if not stop:
+        try:
+            from .overlay_launch import sync_companions
+            sync_companions()
+        except Exception:
+            traceback.print_exc()
     if not radar.supported() or (stop and _RADAR is None):
         return
     ui = ui_settings()
@@ -1537,14 +1559,19 @@ def ui_settings() -> dict:
     from ..paths import data_file, read_json
     defaults = {"app_window": True, "auto_update": True, "overlay_on_start": True, "tray_on_close": False,
                 "overlay_open_on_app_start": True,
+                # The app's text size (percent of the shipped size) and the page it opens on (0.2.329).
+                "app_text_scale": 100, "app_default_page": "meter",
+                # My Character: open the character you opened last when the page opens, and whether that
+                # refreshes it from the official site or shows the last snapshot (both off by default).
+                "character_auto_open": False, "character_auto_refresh": False,
                 "community_heartbeat": True,
                 "overlay_show_contribution": True, "overlay_show_target": True,
                 "overlay_show_deaths": True, "overlay_show_enemy_hp": False, "overlay_show_ttk": False,
                 # Skill-cooldown strip and boss break-gauge bar (both off by default).
                 "overlay_show_cooldowns": False, "overlay_cooldowns_min_s": 3, "overlay_cooldowns_max": 8,
                 "overlay_cooldowns_position": "bottom", "overlay_show_break_gauge": False,
-                # Your Odyle Energy on the overlay and the Live Meter page (on by default).
-                "overlay_show_odyle": True,
+                # Your Odyle Energy and Shugo Keys on the overlay and the Live Meter page (on by default).
+                "overlay_show_odyle": True, "overlay_show_shugo_keys": True,
                 "meter_reset_after_battle": False, "meter_reset_on_boss_start": True, "meter_reset_delay": 5, "meter_max_records": 20,
                 "meter_show_dummy_parse": True, "meter_dummy_record_seconds": 60,
                 "overlay_show_combat_power": True, "overlay_show_community_rank": False, "overlay_live_community_rank": False,
