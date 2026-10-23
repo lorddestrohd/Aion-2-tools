@@ -8,7 +8,6 @@ statistics of the top tracked level-45 characters per class.
 from __future__ import annotations
 
 import re
-import urllib.parse
 
 from .http import fetch
 from .rsc import find_object, flight, text_lines
@@ -16,33 +15,6 @@ from .rsc import find_object, flight, text_lines
 BASE = "https://metabot.gg/en/aion-2"
 CLASSES = ["gladiator", "templar", "assassin", "ranger",
            "sorcerer", "spiritmaster", "cleric", "chanter"]
-
-
-def parse_profile_url(value: str) -> dict[str, str]:
-    """Extract the region, server slug and character name from a MetaBot profile link."""
-    try:
-        parsed = urllib.parse.urlsplit(value.strip())
-    except (AttributeError, ValueError) as exc:
-        raise ValueError("Paste a valid MetaBot AION 2 profile URL.") from exc
-    if (parsed.scheme != "https" or parsed.hostname not in {"metabot.gg", "www.metabot.gg"}
-            or parsed.username or parsed.password or parsed.port not in (None, 443)):
-        raise ValueError("The profile URL must come from https://metabot.gg.")
-    parts = [urllib.parse.unquote(part) for part in parsed.path.strip("/").split("/")]
-    try:
-        profile_index = parts.index("profile")
-    except ValueError as exc:
-        raise ValueError("The MetaBot URL must point to an AION 2 character profile.") from exc
-    if profile_index < 1 or parts[profile_index - 1] != "aion-2" or len(parts) != profile_index + 4:
-        raise ValueError("The MetaBot URL must include the AION 2 region, server and character name.")
-    region, server, name = parts[profile_index + 1:]
-    if region not in {"nae", "eu", "as", "la"} or not server or not name:
-        raise ValueError("The MetaBot profile link has an unsupported region or missing character details.")
-    if any("/" in part or "\\" in part or any(ord(char) < 32 for char in part)
-           for part in (region, server, name)):
-        raise ValueError("The MetaBot profile link contains invalid character details.")
-    return {"region": region, "server": server, "name": name}
-
-
 def class_data(cls: str, fresh: bool = False) -> dict:
     """Skills, budgets, Daevanion boards and base stats for one class (``fresh`` skips the page cache)."""
     age = 0 if fresh else 7 * 86400

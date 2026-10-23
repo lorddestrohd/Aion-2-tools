@@ -701,20 +701,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(build_view_at(q["path"]))
         if path == "/api/character/search":
             from ..sources import official
-            name = q["name"].strip()
-            if "metabot.gg/" in name.casefold():
-                from ..scrape.metabot import parse_profile_url
-                profile = parse_profile_url(name)
-                hits = official.search(profile["name"], region=profile["region"])
-                server = "".join(char for char in profile["server"].casefold() if char.isalnum())
-                exact = [
-                    hit for hit in hits
-                    if (hit.get("name") or "").casefold() == profile["name"].casefold()
-                    and "".join(char for char in (hit.get("server") or "").casefold() if char.isalnum()) == server
-                    and hit.get("region", profile["region"]) == profile["region"]
-                ]
-                return self._json(exact)
-            return self._json(official.search(name, region=q.get("region", "nae")))
+            return self._json(official.search(q["name"], region=q.get("region", "nae")))
         if path == "/api/characters":
             from ..db import store
             return self._json(store.characters(store.connect()))

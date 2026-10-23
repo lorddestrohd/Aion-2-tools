@@ -15,21 +15,6 @@ python -m pip install -e ".[genus-ocr]"
 
 La app se abre en el navegador en `http://127.0.0.1:8765` y comienza en español. La pantalla de inicio muestra el flujo recomendado: importar el personaje, revisar el equipo y optimizar la configuración. También puedes abrir las páginas desde los menús agrupados **Personaje y configuraciones**, **Combate** y **Herramientas del juego**. Usa el selector **Idioma / Language** de la barra superior (o **Ajustes → Apariencia → Idioma**) para cambiar entre español e inglés; la elección se recuerda en ese navegador. Selecciona **Importar personaje** para buscar e importar el personaje de la región Global; después abre **Equipo y recomendaciones** para ver el equipo actual, los cambios recomendados por pieza y las mejoras objetivo. Los datos de la bolsa/almacén que no aparezcan en la armería se agregan manualmente desde esa página.
 
-## Probar la versión de desarrollo con un amigo
-
-Para probar la búsqueda pegando un enlace de perfil de MetaBot, tu amigo necesita Windows, Git y Python 3.10 o posterior. Debe abrir PowerShell y ejecutar estos comandos, uno por uno:
-
-```powershell
-git clone --branch genus-ocr-save https://github.com/lorddestrohd/Aion-2-tools.git
-cd Aion-2-tools
-python -m pip install -e .
-python -m aion2calc app --no-sync
-```
-
-Luego debe abrir `http://127.0.0.1:8765`, ir a **Mi personaje**, pegar un enlace como `https://metabot.gg/es_ES/aion-2/profile/nae/marchutan/LordD` y pulsar **Buscar**. La app usa el enlace para identificar región, servidor y nombre, y busca la coincidencia en el servicio oficial de perfiles de AION 2. Al pulsar **Importar**, consulta el perfil y el equipo en ese servicio oficial; no depende de una API privada de MetaBot.
-
-`--no-sync` evita la sincronización de datos al iniciar la app. La búsqueda e importación sí necesitan conexión a Internet. Para probar OCR de Genus desde la pantalla, en cambio, se instalan las dependencias opcionales con `python -m pip install -e ".[genus-ocr]"`. La app corre localmente en el equipo de cada persona; esta dirección no la publica en Internet ni comparte automáticamente sus datos locales.
-
 ## Leer Genus desde el overlay
 
 La instalación incluye el lector local de pantalla para Windows. Windows debe tener instalado al menos un paquete de reconocimiento OCR en inglés o español; puedes elegir el idioma dentro de la ventana de captura.

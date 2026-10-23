@@ -5,7 +5,6 @@ Network access is never needed: sources are replaced by fakes.
 import json
 import threading
 import time
-import urllib.parse
 import urllib.request
 
 import pytest
@@ -106,63 +105,6 @@ def _profile():
     }
 
 
-def test_metabot_profile_url_parser():
-    from aion2calc.scrape.metabot import parse_profile_url
-
-    assert parse_profile_url("https://metabot.gg/es_ES/aion-2/profile/nae/marchutan/LordD") == {
-        "region": "nae", "server": "marchutan", "name": "LordD"}
-    assert parse_profile_url("https://www.metabot.gg/es_ES/aion-2/profile/eu/server/name%20with%20space") == {
-        "region": "eu", "server": "server", "name": "name with space"}
-    for url in (
-        "http://metabot.gg/es_ES/aion-2/profile/nae/marchutan/LordD",
-        "https://evil.example/es_ES/aion-2/profile/nae/marchutan/LordD",
-        "https://metabot.gg/es_ES/aion-2/profile/invalid/marchutan/LordD",
-        "https://metabot.gg/es_ES/aion-2/profile/nae/marchutan",
-        "https://user@metabot.gg/es_ES/aion-2/profile/nae/marchutan/LordD",
-    ):
-        with pytest.raises(ValueError):
-            parse_profile_url(url)
-
-
-def test_metabot_profile_search_uses_exact_official_match(home, monkeypatch):
-    from http.server import ThreadingHTTPServer
-
-    from aion2calc.app.server import Handler
-    from aion2calc.sources import official
-
-    searched = []
-    candidates = [
-        {"name": "LordD", "server": "Marchutan", "region": "nae", "character_id": "correct"},
-        {"name": "LordD", "server": "Siel", "region": "nae", "character_id": "other-server"},
-        {"name": "LordD", "server": "Marchutan", "region": "eu", "character_id": "other-region"},
-        {"name": "LordD-Alt", "server": "Marchutan", "region": "nae", "character_id": "other-name"},
-    ]
-
-    def search(name, region="nae", **_kwargs):
-        searched.append((name, region))
-        return candidates
-
-    monkeypatch.setattr(official, "search", search)
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
-    base = f"http://127.0.0.1:{srv.server_address[1]}"
-    try:
-        query = urllib.parse.urlencode({
-            "name": "https://metabot.gg/es_ES/aion-2/profile/nae/marchutan/LordD",
-            "region": "eu",
-        })
-        response = json.loads(urllib.request.urlopen(base + "/api/character/search?" + query, timeout=10).read())
-        assert [row["character_id"] for row in response] == ["correct"]
-        assert searched == [("LordD", "nae")]
-
-        query = urllib.parse.urlencode({"name": "LordD", "region": "eu"})
-        response = json.loads(urllib.request.urlopen(base + "/api/character/search?" + query, timeout=10).read())
-        assert response == candidates
-        assert searched[-1] == ("LordD", "eu")
-    finally:
-        srv.shutdown()
-
-
 def test_profile_to_build_and_loadout():
     from aion2calc.model.character import loadout_stats
     from aion2calc.sources.character import from_profile
@@ -247,8 +189,6 @@ def test_app_server_endpoints(home, monkeypatch):
         assert i18n.status == 200
         assert '"Gear & Advice": "Equipo y recomendaciones"' in i18n.read().decode("utf-8")
         app_js = urllib.request.urlopen(base + "/static/app.js", timeout=10).read().decode("utf-8")
-        assert "Character name or MetaBot profile URL" in app_js
-        assert "paste a MetaBot profile link" in app_js
         assert "api('/api/genus/capture',{character:inventoryKey})" in app_js
         genus_editor_js = urllib.request.urlopen(base + "/static/genus-editor.js", timeout=10).read().decode("utf-8")
         assert "locked=!unknown&&slot>level" in genus_editor_js

@@ -632,11 +632,10 @@ async function pagePlanner() {
 
 async function pageCharacter() {
   const st = S.character;
-  app().innerHTML = `<section class="win"><div class="wh"><h2>My character</h2><span class="sub">search by name or paste a MetaBot profile link, then import the official AION 2 character data</span></div>
-    <div class="wb"><div class="row"><input id="nm" type="text" placeholder="Character name or MetaBot profile URL" style="width:340px">
+  app().innerHTML = `<section class="win"><div class="wh"><h2>My character</h2><span class="sub">import from the official AION 2 character page, then optimize it with the same gear</span></div>
+    <div class="wb"><div class="row"><input id="nm" type="text" placeholder="Character name" style="width:252px">
       <select id="rg"><option value="nae">North America</option><option value="eu">Europe</option><option value="as">Asia</option><option value="la">Latin America</option></select>
       <button class="btn primary" id="find">Search</button><span id="cmsg" class="small muted"></span></div>
-      <p class="small muted">When you paste a MetaBot profile link, the app matches its region, server and character name against the official AION 2 profile service before importing.</p>
       <div id="hits" style="margin-top:10px"></div><div id="known" style="margin-top:10px"></div></div></section><div id="cview"></div>`;
   const [known, ui] = await Promise.all([api("/api/characters").catch(() => []), api("/api/ui").catch(() => ({}))]);
   if (known.length) $("#known").innerHTML = `<div class="small muted">Imported before · newest first (click to fetch current profile): <div class="row">${known.slice(0, 8).map((c,i) => `<button class="btn small" data-known-character="${i}">${esc(c.name)} · ${esc(c.class_name)} · ${n0(c.combat_power)}</button>`).join("")}</div></div>`;
